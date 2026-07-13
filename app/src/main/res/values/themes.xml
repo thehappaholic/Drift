@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <style name="Theme.Drift" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">#FEF9F4</item>
+        <item name="android:colorAccent">#6F5BD3</item>
+        <item name="android:statusBarColor">#FEF9F4</item>
+        <item name="android:navigationBarColor">#FEF9F4</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+        <item name="android:windowDisablePreview">false</item>
+    </style>
+</resources>
