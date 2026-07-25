@@ -1,6 +1,7 @@
 package com.example.drift
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -14,6 +15,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -25,11 +27,13 @@ private val HomeShape = RoundedCornerShape(14.dp)
 
 @Composable
 fun DashboardScreen(
+    userName: String = "",
     onFocusClick: () -> Unit = {},
     onFocusScoreClick: () -> Unit = {},
     onBudgetClick: () -> Unit = {},
     onTasksClick: () -> Unit = {},
     onInsightsClick: () -> Unit = {},
+    onProfileClick: () -> Unit = {},
     onSettingsClick: () -> Unit = {}
 ) {
     Scaffold(
@@ -43,9 +47,12 @@ fun DashboardScreen(
                 .padding(horizontal = 20.dp)
         ) {
             Spacer(Modifier.height(22.dp))
-            HomeTopBar(onSettingsClick)
+            HomeTopBar(onProfileClick, onSettingsClick)
             Spacer(Modifier.height(25.dp))
-            Text("Good morning, Sivanja", style = MaterialTheme.typography.headlineSmall)
+            Text(
+                text = if (userName.isBlank()) "Good morning" else "Good morning, $userName",
+                style = MaterialTheme.typography.headlineSmall
+            )
             Text("Here’s what deserves your attention today.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(20.dp))
             SignalCards(onFocusScoreClick, onInsightsClick)
@@ -67,12 +74,40 @@ fun DashboardScreen(
 }
 
 @Composable
-private fun HomeTopBar(onSettings: () -> Unit) {
+private fun HomeTopBar(onProfile: () -> Unit, onSettings: () -> Unit) {
     Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
         Text("Drift", style = MaterialTheme.typography.titleLarge)
-        IconButton(onClick = onSettings) {
-            Text("⚙", fontSize = 23.sp, color = MaterialTheme.colorScheme.primary)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onProfile) {
+                ProfileIcon()
+            }
+            IconButton(onClick = onSettings) {
+                Text("⚙", fontSize = 23.sp, color = MaterialTheme.colorScheme.primary)
+            }
         }
+    }
+}
+
+@Composable
+private fun ProfileIcon() {
+    val color = MaterialTheme.colorScheme.primary
+    Canvas(Modifier.size(23.dp)) {
+        val strokeWidth = 1.8.dp.toPx()
+        drawCircle(
+            color = color,
+            radius = size.minDimension * 0.19f,
+            center = androidx.compose.ui.geometry.Offset(size.width / 2f, size.height * 0.31f),
+            style = Stroke(strokeWidth)
+        )
+        drawArc(
+            color = color,
+            startAngle = 200f,
+            sweepAngle = 140f,
+            useCenter = false,
+            topLeft = androidx.compose.ui.geometry.Offset(size.width * 0.18f, size.height * 0.47f),
+            size = androidx.compose.ui.geometry.Size(size.width * 0.64f, size.height * 0.50f),
+            style = Stroke(strokeWidth)
+        )
     }
 }
 

@@ -32,10 +32,10 @@ fun DriftBottomNavigation(
     onInsights: () -> Unit
 ) {
     val destinations = listOf(
-        DriftDestination.Home to onHome,
         DriftDestination.Budget to onBudget,
-        DriftDestination.Focus to onFocus,
         DriftDestination.Tasks to onTasks,
+        DriftDestination.Home to onHome,
+        DriftDestination.Focus to onFocus,
         DriftDestination.Insights to onInsights
     )
     Row(
@@ -55,7 +55,7 @@ fun DriftBottomNavigation(
             ) {
                 DestinationIcon(
                     destination,
-                    if (destination == DriftDestination.Budget && !isSelected) DriftLilac else ink
+                    if (destination == DriftDestination.Focus && !isSelected) DriftLilac else ink
                 )
                 Spacer(Modifier.height(3.dp))
                 Text(destination.label, style = MaterialTheme.typography.labelSmall, color = ink)
@@ -77,6 +77,11 @@ private fun DestinationIcon(destination: DriftDestination, color: Color) {
                 drawRect(color, topLeft = androidx.compose.ui.geometry.Offset(w * .24f, h * .45f), size = androidx.compose.ui.geometry.Size(w * .52f, h * .4f), style = stroke)
             }
             DriftDestination.Budget -> {
+                drawCircle(color, w * .35f, center, style = stroke)
+                drawLine(color, center, androidx.compose.ui.geometry.Offset(w * .5f, h * .29f), stroke.width)
+                drawLine(color, center, androidx.compose.ui.geometry.Offset(w * .68f, h * .55f), stroke.width)
+            }
+            DriftDestination.Focus -> {
                 // A compact, filled hourglass matching Drift's friendly icon language.
                 drawRoundRect(
                     color,
@@ -100,11 +105,6 @@ private fun DestinationIcon(destination: DriftDestination, color: Color) {
                     size = androidx.compose.ui.geometry.Size(w * .66f, h * .12f),
                     cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * .06f)
                 )
-            }
-            DriftDestination.Focus -> {
-                drawCircle(color, w * .35f, center, style = stroke)
-                drawLine(color, center, androidx.compose.ui.geometry.Offset(w * .5f, h * .29f), stroke.width)
-                drawLine(color, center, androidx.compose.ui.geometry.Offset(w * .68f, h * .55f), stroke.width)
             }
             DriftDestination.Tasks -> {
                 drawRoundRect(color, topLeft = androidx.compose.ui.geometry.Offset(w * .18f, h * .16f), size = androidx.compose.ui.geometry.Size(w * .64f, h * .68f), cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * .08f), style = stroke)

@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -33,6 +34,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -60,6 +64,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LocalRippleConfiguration
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -68,13 +73,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import com.example.drift.data.auth.AuthRepository
+import com.example.drift.data.auth.DriftAuthState
+import com.example.drift.data.auth.OAuthOrigin
+import com.example.drift.data.auth.SignupOutcome
+import com.example.drift.data.profile.OnboardingDraft
+import com.example.drift.data.profile.ProfileRepository
 import com.example.drift.data.remote.SupabaseProvider
 import io.github.jan.supabase.auth.handleDeeplinks
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 
 class MainActivity : ComponentActivity() {
-    private val oauthSignInCompleted = mutableStateOf(false)
+    private val authDeepLinkError = mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -92,7 +103,7 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier.fillMaxSize(),
                         color = MaterialTheme.colorScheme.background
                     ) {
-                    var currentScreen by remember { mutableStateOf("welcome") }
+                    var currentScreen by remember { mutableStateOf("auth_loading") }
                     var instagramBudget by remember { mutableStateOf(45) }
                     var youtubeBudget by remember { mutableStateOf(40) }
                     var browserBudget by remember { mutableStateOf(60) }
@@ -100,30 +111,151 @@ class MainActivity : ComponentActivity() {
                     var lastBreakSeconds by remember { mutableStateOf(0) }
                     var focusRemainingSeconds by remember { mutableStateOf(40 * 60) }
                     var pendingVerificationEmail by remember { mutableStateOf("") }
+                    var signupVerificationRequired by remember { mutableStateOf(false) }
+                    var onboardingDraft by remember { mutableStateOf(OnboardingDraft()) }
+                    var profileName by remember { mutableStateOf("") }
+                    val authState by AuthRepository.authState.collectAsState()
+                    val passwordRecoveryReady by
+                        AuthRepository.passwordRecoveryReady.collectAsState()
+                    val googleSignInDestination by
+                        AuthRepository.googleSignInDestination.collectAsState()
+                    val appScope = rememberCoroutineScope()
 
-                    LaunchedEffect(oauthSignInCompleted.value) {
-                        if (oauthSignInCompleted.value) {
-                            currentScreen = "dashboard"
+                    LaunchedEffect(authDeepLinkError.value) {
+                        if (authDeepLinkError.value != null) {
+                            currentScreen = "login"
+                        }
+                    }
+
+                    LaunchedEffect(Unit) {
+                        AuthRepository.initialize()
+                    }
+
+                    LaunchedEffect(authState) {
+                        when (authState) {
+                            DriftAuthState.Loading -> Unit
+                            DriftAuthState.PasswordRecovery -> {
+                                currentScreen = "reset_password"
+                            }
+                            DriftAuthState.Authenticated,
+                            DriftAuthState.Demo -> {
+                                if (currentScreen in setOf(
+                                        "auth_loading",
+                                        "welcome"
+                                    )
+                                ) {
+                                    currentScreen = if (authState == DriftAuthState.Demo) {
+                                        "dashboard"
+                                    } else {
+                                        "profile_loading"
+                                    }
+                                }
+                            }
+                            DriftAuthState.SignedOut -> {
+                                if (currentScreen == "auth_loading" ||
+                                    currentScreen !in setOf(
+                                        "welcome",
+                                        "login",
+                                        "signup",
+                                        "verify"
+                                    )
+                                ) {
+                                    currentScreen = "welcome"
+                                }
+                            }
+                        }
+                    }
+
+                    LaunchedEffect(passwordRecoveryReady) {
+                        if (passwordRecoveryReady) {
+                            currentScreen = "reset_password"
+                        }
+                    }
+
+                    LaunchedEffect(googleSignInDestination) {
+                        if (googleSignInDestination != null) {
+                            currentScreen = "profile_loading"
+                            AuthRepository.consumeGoogleSignInDestination()
+                        }
+                    }
+
+                    LaunchedEffect(currentScreen) {
+                        if (currentScreen == "profile_loading") {
+                            ProfileRepository.loadCurrentProfile()
+                                .onSuccess { profile ->
+                                    profile?.let {
+                                        profileName = it.fullName
+                                        onboardingDraft = OnboardingDraft(
+                                            academicYear = it.academicYear,
+                                            course = it.course,
+                                            studyStart = it.studyStart.ifBlank { "7:00 PM" },
+                                            studyEnd = it.studyEnd.ifBlank { "10:00 PM" },
+                                            studyDays = it.studyDays.toSet().ifEmpty {
+                                                setOf("Mon", "Wed", "Fri")
+                                            },
+                                            windDownStart = it.windDownStart.ifBlank {
+                                                "10:30 PM"
+                                            },
+                                            windDownEnd = it.windDownEnd.ifBlank {
+                                                "06:30 AM"
+                                            }
+                                        )
+                                    }
+                                    currentScreen = if (profile?.onboardingCompleted == true) {
+                                        "dashboard"
+                                    } else {
+                                        "onboarding_intro"
+                                    }
+                                }
+                                .onFailure {
+                                    currentScreen = "onboarding_intro"
+                                }
                         }
                     }
 
                     when (currentScreen) {
+                        "auth_loading" -> AuthLoadingScreen()
+                        "profile_loading" -> ProfileLoadingScreen()
+
+                        "reset_password" -> ResetPasswordScreen(
+                            onUpdatePassword = AuthRepository::updateRecoveredPassword,
+                            onPasswordUpdated = { currentScreen = "login" },
+                            onCancel = {
+                                appScope.launch {
+                                    AuthRepository.cancelPasswordRecovery()
+                                    currentScreen = "login"
+                                }
+                            }
+                        )
+
                         "login" -> LoginScreen(
                             onBack = { currentScreen = "welcome" },
                             onSignUpClick = { currentScreen = "signup" },
                             onLoginClick = AuthRepository::signIn,
                             onForgotPasswordClick = AuthRepository::sendPasswordReset,
-                            onGoogleClick = AuthRepository::signInWithGoogle,
-                            onLoginSuccess = { currentScreen = "dashboard" }
+                            onGoogleClick = {
+                                authDeepLinkError.value = null
+                                AuthRepository.signInWithGoogle(OAuthOrigin.Login)
+                            },
+                            externalError = authDeepLinkError.value,
+                            onLoginSuccess = { currentScreen = "profile_loading" }
                         )
 
                         "signup" -> SignupScreen(
                             onBack = { currentScreen = "welcome" },
                             onSignUpClick = AuthRepository::signUp,
-                            onGoogleClick = AuthRepository::signInWithGoogle,
-                            onSignUpSuccess = { email ->
+                            onGoogleClick = {
+                                authDeepLinkError.value = null
+                                AuthRepository.signInWithGoogle(OAuthOrigin.Signup)
+                            },
+                            onSignUpSuccess = { email, outcome ->
                                 pendingVerificationEmail = email
-                                currentScreen = "verify"
+                                signupVerificationRequired =
+                                    outcome == SignupOutcome.VerificationRequired
+                                currentScreen = when (outcome) {
+                                    SignupOutcome.VerificationRequired -> "verify"
+                                    SignupOutcome.Authenticated -> "onboarding_intro"
+                                }
                             },
                             onLoginClick = { currentScreen = "login" }
                         )
@@ -137,33 +269,68 @@ class MainActivity : ComponentActivity() {
                         )
 
                         "onboarding_intro" -> OnboardingIntroScreen(
-                            onBack = { currentScreen = "verify" },
-                            onSkip = { currentScreen = "dashboard" },
+                            onBack = {
+                                currentScreen =
+                                    if (signupVerificationRequired) "verify" else "signup"
+                            },
+                            onSkip = {
+                                appScope.launch {
+                                    ProfileRepository.saveOnboarding(onboardingDraft)
+                                        .onSuccess { currentScreen = "dashboard" }
+                                }
+                            },
                             onContinue = { currentScreen = "academic_info" }
                         )
 
                         "academic_info" -> AcademicInfoScreen(
                             onBack = { currentScreen = "onboarding_intro" },
-                            onContinue = { currentScreen = "study_schedule" }
+                            draft = onboardingDraft,
+                            onContinue = { academicYear, course ->
+                                onboardingDraft = onboardingDraft.copy(
+                                    academicYear = academicYear,
+                                    course = course
+                                )
+                                currentScreen = "study_schedule"
+                            }
                         )
 
                         "study_schedule" -> StudyScheduleScreen(
                             onBack = { currentScreen = "academic_info" },
-                            onContinue = { currentScreen = "wind_down" }
+                            draft = onboardingDraft,
+                            onContinue = { start, end, days ->
+                                onboardingDraft = onboardingDraft.copy(
+                                    studyStart = start,
+                                    studyEnd = end,
+                                    studyDays = days
+                                )
+                                currentScreen = "wind_down"
+                            }
                         )
 
                         "wind_down" -> WindDownScreen(
                             onBack = { currentScreen = "study_schedule" },
-                            onContinue = { currentScreen = "onboarding_summary" }
+                            draft = onboardingDraft,
+                            onContinue = { start, end ->
+                                onboardingDraft = onboardingDraft.copy(
+                                    windDownStart = start,
+                                    windDownEnd = end
+                                )
+                                currentScreen = "onboarding_summary"
+                            }
                         )
 
                         "onboarding_summary" -> OnboardingSummaryScreen(
                             onBack = { currentScreen = "wind_down" },
-                            onGetStarted = { currentScreen = "dashboard" },
+                            draft = onboardingDraft,
+                            onGetStarted = {
+                                ProfileRepository.saveOnboarding(onboardingDraft)
+                            },
+                            onSaved = { currentScreen = "dashboard" },
                             onEditSettings = { currentScreen = "academic_info" }
                         )
 
                         "dashboard" -> DashboardScreen(
+                            userName = profileName,
                             onFocusClick = {
                                 focusRemainingSeconds = 40 * 60
                                 lastFocusSeconds = 0
@@ -174,6 +341,7 @@ class MainActivity : ComponentActivity() {
                             onBudgetClick = { currentScreen = "budget" },
                             onTasksClick = { currentScreen = "tasks" },
                             onInsightsClick = { currentScreen = "insights" },
+                            onProfileClick = { currentScreen = "settings" },
                             onSettingsClick = { currentScreen = "settings" }
                         )
 
@@ -279,7 +447,9 @@ class MainActivity : ComponentActivity() {
                         "settings" -> SettingsScreen(
                             onBack = { currentScreen = "dashboard" },
                             onEditOnboarding = { currentScreen = "academic_info" },
-                            onLogout = { currentScreen = "welcome" },
+                            onLogout = {
+                                appScope.launch { AuthRepository.signOut() }
+                            },
                             darkMode = darkMode,
                             onDarkModeChange = {
                                 darkMode = it
@@ -305,10 +475,263 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleAuthIntent(intent: Intent) {
+        if (SupabaseProvider.configurationError != null ||
+            intent.data?.scheme != "drift"
+        ) {
+            return
+        }
+        val isPasswordRecovery = intent.data?.path == "/recovery" ||
+                intent.data?.getQueryParameter("type") == "recovery" ||
+                intent.data?.fragment
+                    ?.split("&")
+                    ?.any { it == "type=recovery" } == true
+        val callbackError = intent.data?.getQueryParameter("error_description")
+            ?: intent.data?.fragment
+                ?.split("&")
+                ?.firstOrNull { it.startsWith("error_description=") }
+                ?.substringAfter("=")
+        if (callbackError != null) {
+            AuthRepository.cancelPendingGoogleSignIn()
+            authDeepLinkError.value =
+                "Google sign-in was cancelled or couldn't be completed. Please try again."
+            return
+        }
         SupabaseProvider.client.handleDeeplinks(
             intent = intent,
-            onSessionSuccess = { oauthSignInCompleted.value = true }
+            onSessionSuccess = { session ->
+                if (isPasswordRecovery) {
+                    AuthRepository.markPasswordRecoveryReady()
+                } else {
+                    AuthRepository.completeGoogleSignIn(session)
+                }
+            },
+            onError = {
+                authDeepLinkError.value = if (isPasswordRecovery) {
+                    "This password-reset link is invalid or expired. Request a new email."
+                } else {
+                    "We couldn't complete authentication. Please try again."
+                }
+            }
         )
+    }
+}
+
+@Composable
+private fun AuthLoadingScreen() {
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        CircularProgressIndicator(
+            color = MaterialTheme.colorScheme.primary,
+            strokeWidth = 3.dp
+        )
+        Spacer(modifier = Modifier.height(18.dp))
+        Text(
+            text = "Drift",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold
+        )
+        Spacer(modifier = Modifier.height(5.dp))
+        Text(
+            text = "Restoring your session…",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+private fun ProfileLoadingScreen() {
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        CircularProgressIndicator(
+            color = MaterialTheme.colorScheme.primary,
+            strokeWidth = 3.dp
+        )
+        Spacer(modifier = Modifier.height(18.dp))
+        Text(
+            text = "Preparing your Drift profile…",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+private fun ResetPasswordScreen(
+    onUpdatePassword: suspend (String) -> Result<Unit>,
+    onPasswordUpdated: () -> Unit,
+    onCancel: () -> Unit
+) {
+    var password by remember { mutableStateOf("") }
+    var confirmPassword by remember { mutableStateOf("") }
+    var passwordVisible by remember { mutableStateOf(false) }
+    var confirmPasswordVisible by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var isUpdating by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
+    val passwordIsValid = password.length >= 8
+    val passwordsMatch = password == confirmPassword
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 28.dp, vertical = 48.dp)
+    ) {
+        Text(
+            text = "←",
+            fontSize = 30.sp,
+            modifier = Modifier.clickable(enabled = !isUpdating, onClick = onCancel)
+        )
+
+        Spacer(modifier = Modifier.height(48.dp))
+
+        Text(
+            text = "Create a new password",
+            fontSize = 30.sp,
+            fontWeight = FontWeight.Bold
+        )
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        Text(
+            text = "Choose a secure password you haven't used for Drift before.",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        Spacer(modifier = Modifier.height(34.dp))
+
+        Text(
+            text = "New password",
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        OutlinedTextField(
+            value = password,
+            onValueChange = {
+                password = it
+                errorMessage = null
+            },
+            singleLine = true,
+            placeholder = { Text("At least 8 characters") },
+            visualTransformation = if (passwordVisible) {
+                VisualTransformation.None
+            } else {
+                PasswordVisualTransformation()
+            },
+            trailingIcon = {
+                TextButton(onClick = { passwordVisible = !passwordVisible }) {
+                    Text(if (passwordVisible) "Hide" else "Show")
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(10.dp)
+        )
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        Text(
+            text = "Confirm new password",
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        OutlinedTextField(
+            value = confirmPassword,
+            onValueChange = {
+                confirmPassword = it
+                errorMessage = null
+            },
+            singleLine = true,
+            placeholder = { Text("Enter it again") },
+            visualTransformation = if (confirmPasswordVisible) {
+                VisualTransformation.None
+            } else {
+                PasswordVisualTransformation()
+            },
+            trailingIcon = {
+                TextButton(
+                    onClick = { confirmPasswordVisible = !confirmPasswordVisible }
+                ) {
+                    Text(if (confirmPasswordVisible) "Hide" else "Show")
+                }
+            },
+            isError = confirmPassword.isNotEmpty() && !passwordsMatch,
+            supportingText = {
+                when {
+                    password.isNotEmpty() && !passwordIsValid ->
+                        Text("Use at least 8 characters.")
+                    confirmPassword.isNotEmpty() && !passwordsMatch ->
+                        Text("Passwords don't match.")
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(10.dp)
+        )
+
+        errorMessage?.let { message ->
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error
+            )
+        }
+
+        Spacer(modifier = Modifier.height(26.dp))
+
+        Button(
+            onClick = {
+                errorMessage = null
+                coroutineScope.launch {
+                    isUpdating = true
+                    onUpdatePassword(password)
+                        .onSuccess { onPasswordUpdated() }
+                        .onFailure { error ->
+                            errorMessage = error.message
+                                ?: "We couldn't update your password."
+                        }
+                    isUpdating = false
+                }
+            },
+            enabled = passwordIsValid && passwordsMatch &&
+                    confirmPassword.isNotEmpty() &&
+                    !isUpdating,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp),
+            shape = RoundedCornerShape(10.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
+            )
+        ) {
+            if (isUpdating) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(24.dp),
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    strokeWidth = 2.dp
+                )
+            } else {
+                Text(
+                    text = "Update password",
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
     }
 }
 
@@ -442,6 +865,7 @@ fun LoginScreen(
     onLoginClick: suspend (String, String) -> Result<Unit> = { _, _ -> Result.success(Unit) },
     onForgotPasswordClick: suspend (String) -> Result<Unit> = { Result.success(Unit) },
     onGoogleClick: suspend () -> Result<Unit> = { Result.success(Unit) },
+    externalError: String? = null,
     onLoginSuccess: () -> Unit = {}
 ) {
     var email by remember { mutableStateOf("") }
@@ -451,7 +875,14 @@ fun LoginScreen(
     var passwordResetMessage by remember { mutableStateOf<String?>(null) }
     var isSendingReset by remember { mutableStateOf(false) }
     var isLoggingIn by remember { mutableStateOf(false) }
+    var isLaunchingGoogle by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
+
+    LaunchedEffect(externalError) {
+        if (externalError != null) {
+            loginError = externalError
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -481,7 +912,22 @@ fun LoginScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
-        Spacer(modifier = Modifier.height(38.dp))
+        if (BuildConfig.DEBUG) {
+            Spacer(modifier = Modifier.height(12.dp))
+
+            TextButton(
+                onClick = {
+                    email = AuthRepository.DEMO_EMAIL
+                    password = AuthRepository.DEMO_PASSWORD
+                    loginError = null
+                    passwordResetMessage = null
+                }
+            ) {
+                Text("Use test account")
+            }
+        }
+
+        Spacer(modifier = Modifier.height(if (BuildConfig.DEBUG) 18.dp else 38.dp))
 
         Text(
             text = "Email",
@@ -517,7 +963,10 @@ fun LoginScreen(
 
         OutlinedTextField(
             value = password,
-            onValueChange = { password = it },
+            onValueChange = {
+                password = it
+                loginError = null
+            },
             placeholder = { Text("Enter your password") },
             singleLine = true,
             visualTransformation = if (passwordVisible) {
@@ -571,7 +1020,9 @@ fun LoginScreen(
         Button(
             onClick = {
                 loginError = null
-                if (email.isNotBlank() && password.isNotBlank() && !isLoggingIn) {
+                if (!isValidEmail(email)) {
+                    loginError = "Enter a valid email address."
+                } else if (password.isNotBlank() && !isLoggingIn) {
                     coroutineScope.launch {
                         isLoggingIn = true
                         onLoginClick(email, password)
@@ -664,22 +1115,35 @@ fun LoginScreen(
         OutlinedButton(
             onClick = {
                 loginError = null
-                coroutineScope.launch {
-                    onGoogleClick().onFailure { error ->
-                        loginError = error.message ?: "Google sign-in is unavailable."
+                if (!isLaunchingGoogle) {
+                    coroutineScope.launch {
+                        isLaunchingGoogle = true
+                        onGoogleClick().onFailure { error ->
+                            loginError = error.message ?: "Google sign-in is unavailable."
+                        }
+                        isLaunchingGoogle = false
                     }
                 }
             },
+            enabled = !isLaunchingGoogle && !isLoggingIn,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(54.dp),
             shape = RoundedCornerShape(10.dp)
         ) {
-            Text(
-                text = "G   Continue with Google",
-                color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.SemiBold
-            )
+            if (isLaunchingGoogle) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(22.dp),
+                    color = MaterialTheme.colorScheme.primary,
+                    strokeWidth = 2.dp
+                )
+            } else {
+                Text(
+                    text = "G   Continue with Google",
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
         }
 
         Spacer(modifier = Modifier.weight(1f))
@@ -701,10 +1165,10 @@ fun LoginScreen(
 @Composable
 fun SignupScreen(
     onBack: () -> Unit,
-    onSignUpClick: suspend (String, String, String) -> Result<Unit> = { _, _, _ ->
-        Result.success(Unit)
+    onSignUpClick: suspend (String, String, String) -> Result<SignupOutcome> = { _, _, _ ->
+        Result.success(SignupOutcome.VerificationRequired)
     },
-    onSignUpSuccess: (String) -> Unit = {},
+    onSignUpSuccess: (String, SignupOutcome) -> Unit = { _, _ -> },
     onGoogleClick: suspend () -> Result<Unit> = { Result.success(Unit) },
     onLoginClick: () -> Unit = {}
 ) {
@@ -716,6 +1180,7 @@ fun SignupScreen(
     var showSignupValidation by remember { mutableStateOf(false) }
     var signupError by remember { mutableStateOf<String?>(null) }
     var isSigningUp by remember { mutableStateOf(false) }
+    var isLaunchingGoogle by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
     val signupValid = fullName.isNotBlank() &&
             isValidEmail(email) &&
@@ -886,7 +1351,9 @@ fun SignupScreen(
                     coroutineScope.launch {
                         isSigningUp = true
                         onSignUpClick(fullName, email, password)
-                            .onSuccess { onSignUpSuccess(email.trim()) }
+                            .onSuccess { outcome ->
+                                onSignUpSuccess(email.trim(), outcome)
+                            }
                             .onFailure { error ->
                                 signupError = error.message
                                     ?: "We couldn't create your account. Please try again."
@@ -941,22 +1408,35 @@ fun SignupScreen(
         OutlinedButton(
             onClick = {
                 signupError = null
-                coroutineScope.launch {
-                    onGoogleClick().onFailure { error ->
-                        signupError = error.message ?: "Google sign-in is unavailable."
+                if (!isLaunchingGoogle) {
+                    coroutineScope.launch {
+                        isLaunchingGoogle = true
+                        onGoogleClick().onFailure { error ->
+                            signupError = error.message ?: "Google sign-in is unavailable."
+                        }
+                        isLaunchingGoogle = false
                     }
                 }
             },
+            enabled = !isLaunchingGoogle && !isSigningUp,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(54.dp),
             shape = RoundedCornerShape(10.dp)
         ) {
-            Text(
-                text = "G   Continue with Google",
-                color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.SemiBold
-            )
+            if (isLaunchingGoogle) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(22.dp),
+                    color = MaterialTheme.colorScheme.primary,
+                    strokeWidth = 2.dp
+                )
+            } else {
+                Text(
+                    text = "G   Continue with Google",
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(28.dp))
@@ -984,11 +1464,25 @@ fun VerifyEmailScreen(
     onResendClick: suspend (String) -> Result<Unit>
 ) {
     var code by remember { mutableStateOf(List(6) { "" }) }
+    var codeRemainingSeconds by remember(email) { mutableStateOf(5 * 60) }
     var verificationError by remember { mutableStateOf<String?>(null) }
     var resendMessage by remember { mutableStateOf<String?>(null) }
     var isVerifying by remember { mutableStateOf(false) }
     var isResending by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
+    val codeFocusRequesters = remember { List(6) { FocusRequester() } }
+
+    LaunchedEffect(Unit) {
+        delay(150)
+        codeFocusRequesters.first().requestFocus()
+    }
+
+    LaunchedEffect(codeRemainingSeconds) {
+        if (codeRemainingSeconds > 0) {
+            delay(1000)
+            codeRemainingSeconds--
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -1059,17 +1553,37 @@ fun VerifyEmailScreen(
                 OutlinedTextField(
                     value = digit,
                     onValueChange = { newValue ->
-                        if (newValue.length <= 1 && newValue.all { it.isDigit() }) {
-                            code = code.toMutableList().also { it[index] = newValue }.toList()
+                        verificationError = null
+                        resendMessage = null
+                        val enteredDigits = newValue.filter(Char::isDigit)
+                        if (enteredDigits.isEmpty()) {
+                            code = code.toMutableList().also { it[index] = "" }.toList()
+                        } else {
+                            val updatedCode = code.toMutableList()
+                            enteredDigits.take(6 - index).forEachIndexed { offset, value ->
+                                updatedCode[index + offset] = value.toString()
+                            }
+                            code = updatedCode.toList()
+                            val nextIndex = (index + enteredDigits.length).coerceAtMost(5)
+                            codeFocusRequesters[nextIndex].requestFocus()
                         }
                     },
                     singleLine = true,
                     textStyle = MaterialTheme.typography.titleLarge.copy(
                         textAlign = TextAlign.Center
                     ),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Number,
+                        imeAction = if (index == 5) ImeAction.Done else ImeAction.Next
+                    ),
+                    keyboardActions = KeyboardActions(
+                        onNext = {
+                            codeFocusRequesters[(index + 1).coerceAtMost(5)].requestFocus()
+                        }
+                    ),
                     modifier = Modifier
                         .weight(1f)
+                        .focusRequester(codeFocusRequesters[index])
                         .height(56.dp),
                     shape = RoundedCornerShape(10.dp)
                 )
@@ -1079,9 +1593,20 @@ fun VerifyEmailScreen(
         Spacer(modifier = Modifier.height(20.dp))
 
         Text(
-            text = "Code expires in 04:59",
+            text = if (codeRemainingSeconds > 0) {
+                "Code expires in %02d:%02d".format(
+                    codeRemainingSeconds / 60,
+                    codeRemainingSeconds % 60
+                )
+            } else {
+                "Code expired — request a new one"
+            },
             fontSize = 14.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = if (codeRemainingSeconds > 0) {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            } else {
+                MaterialTheme.colorScheme.error
+            }
         )
 
         Spacer(modifier = Modifier.height(32.dp))
@@ -1111,7 +1636,9 @@ fun VerifyEmailScreen(
                     isVerifying = false
                 }
             },
-            enabled = code.all { it.isNotBlank() } && !isVerifying,
+            enabled = code.all { it.isNotBlank() } &&
+                    codeRemainingSeconds > 0 &&
+                    !isVerifying,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp),
@@ -1158,7 +1685,12 @@ fun VerifyEmailScreen(
                 coroutineScope.launch {
                     isResending = true
                     onResendClick(email)
-                        .onSuccess { resendMessage = "A new code was sent." }
+                        .onSuccess {
+                            code = List(6) { "" }
+                            codeRemainingSeconds = 5 * 60
+                            resendMessage = "A new code was sent."
+                            codeFocusRequesters.first().requestFocus()
+                        }
                         .onFailure { error ->
                             verificationError = error.message
                                 ?: "We couldn't resend the code. Please try again."
@@ -1364,10 +1896,13 @@ fun OnboardingIntroScreen(
 @Composable
 fun AcademicInfoScreen(
     onBack: () -> Unit,
-    onContinue: () -> Unit = {}
+    draft: OnboardingDraft = OnboardingDraft(),
+    onContinue: (String, String) -> Unit = { _, _ -> }
 ) {
-    var academicYear by remember { mutableStateOf("") }
-    var course by remember { mutableStateOf("") }
+    var academicYear by remember(draft.academicYear) {
+        mutableStateOf(draft.academicYear)
+    }
+    var course by remember(draft.course) { mutableStateOf(draft.course) }
     var dropdownExpanded by remember { mutableStateOf(false) }
     val yearOptions = listOf("Year 1", "Year 2", "Year 3", "Year 4", "Postgraduate")
     val scrollState = rememberScrollState()
@@ -1487,7 +2022,7 @@ fun AcademicInfoScreen(
 
         DriftPrimaryButton(
             text = "Continue",
-            onClick = onContinue
+            onClick = { onContinue(academicYear, course) }
         )
     }
 }
@@ -1495,11 +2030,16 @@ fun AcademicInfoScreen(
 @Composable
 fun StudyScheduleScreen(
     onBack: () -> Unit,
-    onContinue: () -> Unit = {}
+    draft: OnboardingDraft = OnboardingDraft(),
+    onContinue: (String, String, Set<String>) -> Unit = { _, _, _ -> }
 ) {
-    var startTime by remember { mutableStateOf("7:00 PM") }
-    var endTime by remember { mutableStateOf("10:00 PM") }
-    var selectedDays by remember { mutableStateOf(setOf("Mon", "Wed", "Fri")) }
+    var startTime by remember(draft.studyStart) {
+        mutableStateOf(draft.studyStart)
+    }
+    var endTime by remember(draft.studyEnd) { mutableStateOf(draft.studyEnd) }
+    var selectedDays by remember(draft.studyDays) {
+        mutableStateOf(draft.studyDays)
+    }
     val days = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
     val scrollState = rememberScrollState()
 
@@ -1643,7 +2183,7 @@ fun StudyScheduleScreen(
 
         DriftPrimaryButton(
             text = "Continue",
-            onClick = onContinue
+            onClick = { onContinue(startTime, endTime, selectedDays) }
         )
     }
 }
@@ -1682,10 +2222,15 @@ private fun StudyDayChip(
 @Composable
 fun WindDownScreen(
     onBack: () -> Unit,
-    onContinue: () -> Unit = {}
+    draft: OnboardingDraft = OnboardingDraft(),
+    onContinue: (String, String) -> Unit = { _, _ -> }
 ) {
-    var windDownStart by remember { mutableStateOf("10:30 PM") }
-    var windDownEnd by remember { mutableStateOf("06:30 AM") }
+    var windDownStart by remember(draft.windDownStart) {
+        mutableStateOf(draft.windDownStart)
+    }
+    var windDownEnd by remember(draft.windDownEnd) {
+        mutableStateOf(draft.windDownEnd)
+    }
     val scrollState = rememberScrollState()
 
     Column(
@@ -1807,7 +2352,7 @@ fun WindDownScreen(
 
         DriftPrimaryButton(
             text = "Continue",
-            onClick = onContinue
+            onClick = { onContinue(windDownStart, windDownEnd) }
         )
     }
 }
@@ -1815,15 +2360,21 @@ fun WindDownScreen(
 @Composable
 fun OnboardingSummaryScreen(
     onBack: () -> Unit,
-    onGetStarted: () -> Unit = {},
+    draft: OnboardingDraft = OnboardingDraft(),
+    onGetStarted: suspend () -> Result<Unit> = { Result.success(Unit) },
+    onSaved: () -> Unit = {},
     onEditSettings: () -> Unit = {}
 ) {
     val scrollState = rememberScrollState()
+    val coroutineScope = rememberCoroutineScope()
+    var isSaving by remember { mutableStateOf(false) }
+    var saveError by remember { mutableStateOf<String?>(null) }
     val summaryItems = listOf(
-        "Academic Year" to "Year 3",
-        "Course" to "BSc Computer Science",
-        "Study Time" to "7:00 PM - 10:00 PM",
-        "Sleep Hours" to "10:30 PM - 6:30 AM",
+        "Academic Year" to draft.academicYear.ifBlank { "Not specified" },
+        "Course" to draft.course.ifBlank { "Not specified" },
+        "Study Time" to "${draft.studyStart} - ${draft.studyEnd}",
+        "Study Days" to draft.studyDays.joinToString(", "),
+        "Sleep Hours" to "${draft.windDownStart} - ${draft.windDownEnd}",
         "Wind-Down Mode" to "Enabled"
     )
 
@@ -1932,12 +2483,39 @@ fun OnboardingSummaryScreen(
         }
 
         DriftPrimaryButton(
-            text = "Get Started",
-            onClick = onGetStarted
+            text = if (isSaving) "Saving…" else "Get Started",
+            onClick = {
+                if (!isSaving) {
+                    saveError = null
+                    coroutineScope.launch {
+                        isSaving = true
+                        onGetStarted()
+                            .onSuccess { onSaved() }
+                            .onFailure { error ->
+                                saveError = error.message
+                                    ?: "We couldn't save your profile. Please try again."
+                            }
+                        isSaving = false
+                    }
+                }
+            }
         )
+
+        saveError?.let { message ->
+            Text(
+                text = message,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp)
+            )
+        }
 
         TextButton(
             onClick = onEditSettings,
+            enabled = !isSaving,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 4.dp)
