@@ -1,6 +1,8 @@
 package com.example.drift
 
 import android.os.Bundle
+import android.content.Intent
+import android.util.Patterns
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -27,6 +29,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -49,6 +52,7 @@ import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.foundation.Image
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
@@ -59,14 +63,22 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import com.example.drift.data.auth.AuthRepository
+import com.example.drift.data.remote.SupabaseProvider
+import io.github.jan.supabase.auth.handleDeeplinks
+import kotlinx.coroutines.launch
 
 
 class MainActivity : ComponentActivity() {
+    private val oauthSignInCompleted = mutableStateOf(false)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        handleAuthIntent(intent)
         enableEdgeToEdge()
 
         setContent {
@@ -87,23 +99,41 @@ class MainActivity : ComponentActivity() {
                     var lastFocusSeconds by remember { mutableStateOf(0) }
                     var lastBreakSeconds by remember { mutableStateOf(0) }
                     var focusRemainingSeconds by remember { mutableStateOf(40 * 60) }
+                    var pendingVerificationEmail by remember { mutableStateOf("") }
+
+                    LaunchedEffect(oauthSignInCompleted.value) {
+                        if (oauthSignInCompleted.value) {
+                            currentScreen = "dashboard"
+                        }
+                    }
 
                     when (currentScreen) {
                         "login" -> LoginScreen(
                             onBack = { currentScreen = "welcome" },
                             onSignUpClick = { currentScreen = "signup" },
+                            onLoginClick = AuthRepository::signIn,
+                            onForgotPasswordClick = AuthRepository::sendPasswordReset,
+                            onGoogleClick = AuthRepository::signInWithGoogle,
                             onLoginSuccess = { currentScreen = "dashboard" }
                         )
 
                         "signup" -> SignupScreen(
                             onBack = { currentScreen = "welcome" },
-                            onSignUpClick = { currentScreen = "verify" },
+                            onSignUpClick = AuthRepository::signUp,
+                            onGoogleClick = AuthRepository::signInWithGoogle,
+                            onSignUpSuccess = { email ->
+                                pendingVerificationEmail = email
+                                currentScreen = "verify"
+                            },
                             onLoginClick = { currentScreen = "login" }
                         )
 
                         "verify" -> VerifyEmailScreen(
                             onBack = { currentScreen = "signup" },
-                            onVerifyClick = { currentScreen = "onboarding_intro" }
+                            email = pendingVerificationEmail,
+                            onVerifyClick = AuthRepository::verifySignupEmail,
+                            onVerifySuccess = { currentScreen = "onboarding_intro" },
+                            onResendClick = AuthRepository::resendSignupCode
                         )
 
                         "onboarding_intro" -> OnboardingIntroScreen(
@@ -267,6 +297,19 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleAuthIntent(intent)
+    }
+
+    private fun handleAuthIntent(intent: Intent) {
+        SupabaseProvider.client.handleDeeplinks(
+            intent = intent,
+            onSessionSuccess = { oauthSignInCompleted.value = true }
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -277,6 +320,18 @@ fun RippleSafeContent(content: @Composable () -> Unit) {
         content = content
     )
 }
+
+private fun isValidEmail(value: String): Boolean {
+    val email = value.sanitizeEmailInput()
+    return email == value &&
+            email.isNotEmpty() &&
+            !email.any { it.isWhitespace() } &&
+            Patterns.EMAIL_ADDRESS.matcher(email).matches()
+}
+
+private fun String.sanitizeEmailInput(): String = filterNot { character ->
+    character.isWhitespace() || Character.isSpaceChar(character)
+}.trim()
 
 @Composable
 fun WelcomeScreen(
@@ -384,11 +439,19 @@ fun WelcomeScreen(
 fun LoginScreen(
     onBack: () -> Unit,
     onSignUpClick: () -> Unit = {},
+    onLoginClick: suspend (String, String) -> Result<Unit> = { _, _ -> Result.success(Unit) },
+    onForgotPasswordClick: suspend (String) -> Result<Unit> = { Result.success(Unit) },
+    onGoogleClick: suspend () -> Result<Unit> = { Result.success(Unit) },
     onLoginSuccess: () -> Unit = {}
 ) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
+    var loginError by remember { mutableStateOf<String?>(null) }
+    var passwordResetMessage by remember { mutableStateOf<String?>(null) }
+    var isSendingReset by remember { mutableStateOf(false) }
+    var isLoggingIn by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
 
     Column(
         modifier = Modifier
@@ -430,9 +493,14 @@ fun LoginScreen(
 
         OutlinedTextField(
             value = email,
-            onValueChange = { email = it },
+            onValueChange = { value ->
+                email = value.sanitizeEmailInput()
+                loginError = null
+                passwordResetMessage = null
+            },
             placeholder = { Text("Enter your email") },
             singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(10.dp)
         )
@@ -469,11 +537,31 @@ fun LoginScreen(
         )
 
         TextButton(
-            onClick = {},
+            onClick = {
+                loginError = null
+                passwordResetMessage = null
+                if (!isValidEmail(email)) {
+                    loginError = "Enter your email address first."
+                } else if (!isSendingReset) {
+                    coroutineScope.launch {
+                        isSendingReset = true
+                        onForgotPasswordClick(email)
+                            .onSuccess {
+                                passwordResetMessage = "Password reset email sent."
+                            }
+                            .onFailure { error ->
+                                loginError = error.message
+                                    ?: "We couldn't send the reset email."
+                            }
+                        isSendingReset = false
+                    }
+                }
+            },
+            enabled = !isSendingReset,
             modifier = Modifier.align(Alignment.End)
         ) {
             Text(
-                text = "Forgot password?",
+                text = if (isSendingReset) "Sending..." else "Forgot password?",
                 color = MaterialTheme.colorScheme.primary
             )
         }
@@ -482,11 +570,21 @@ fun LoginScreen(
 
         Button(
             onClick = {
-                if (email.isNotBlank() && password.isNotBlank()) {
-                    onLoginSuccess()
+                loginError = null
+                if (email.isNotBlank() && password.isNotBlank() && !isLoggingIn) {
+                    coroutineScope.launch {
+                        isLoggingIn = true
+                        onLoginClick(email, password)
+                            .onSuccess { onLoginSuccess() }
+                            .onFailure { error ->
+                                loginError = error.message
+                                    ?: "Invalid email or password."
+                            }
+                        isLoggingIn = false
+                    }
                 }
             },
-            enabled = email.isNotBlank() && password.isNotBlank(),
+            enabled = email.isNotBlank() && password.isNotBlank() && !isLoggingIn,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp),
@@ -496,10 +594,40 @@ fun LoginScreen(
                 contentColor = MaterialTheme.colorScheme.onPrimary
             )
         ) {
+            if (isLoggingIn) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(24.dp),
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    strokeWidth = 2.dp
+                )
+            } else {
+                Text(
+                    text = "Log In",
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+
+        loginError?.let { message ->
+            Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "Log In",
-                fontSize = 17.sp,
-                fontWeight = FontWeight.SemiBold
+                text = message,
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.Center
+            )
+        }
+
+        passwordResetMessage?.let { message ->
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = message,
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.Center
             )
         }
 
@@ -534,7 +662,14 @@ fun LoginScreen(
         Spacer(modifier = Modifier.height(24.dp))
 
         OutlinedButton(
-            onClick = {},
+            onClick = {
+                loginError = null
+                coroutineScope.launch {
+                    onGoogleClick().onFailure { error ->
+                        loginError = error.message ?: "Google sign-in is unavailable."
+                    }
+                }
+            },
             modifier = Modifier
                 .fillMaxWidth()
                 .height(54.dp),
@@ -566,7 +701,11 @@ fun LoginScreen(
 @Composable
 fun SignupScreen(
     onBack: () -> Unit,
-    onSignUpClick: () -> Unit = {},
+    onSignUpClick: suspend (String, String, String) -> Result<Unit> = { _, _, _ ->
+        Result.success(Unit)
+    },
+    onSignUpSuccess: (String) -> Unit = {},
+    onGoogleClick: suspend () -> Result<Unit> = { Result.success(Unit) },
     onLoginClick: () -> Unit = {}
 ) {
     var fullName by remember { mutableStateOf("") }
@@ -575,14 +714,18 @@ fun SignupScreen(
     var passwordVisible by remember { mutableStateOf(false) }
     var termsAccepted by remember { mutableStateOf(false) }
     var showSignupValidation by remember { mutableStateOf(false) }
+    var signupError by remember { mutableStateOf<String?>(null) }
+    var isSigningUp by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
     val signupValid = fullName.isNotBlank() &&
-            email.contains("@") &&
+            isValidEmail(email) &&
             password.length >= 8 &&
             termsAccepted
 
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = 28.dp, vertical = 48.dp)
     ) {
         Text(
@@ -639,9 +782,13 @@ fun SignupScreen(
 
         OutlinedTextField(
             value = email,
-            onValueChange = { email = it },
+            onValueChange = { value ->
+                email = value.sanitizeEmailInput()
+                signupError = null
+            },
             placeholder = { Text("Enter your email") },
             singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(10.dp)
         )
@@ -710,10 +857,19 @@ fun SignupScreen(
             Text(
                 text = when {
                     fullName.isBlank() -> "Enter your full name."
-                    !email.contains("@") -> "Enter a valid email address."
+                    !isValidEmail(email) -> "Enter a valid email address without spaces."
                     password.length < 8 -> "Use at least 8 characters for your password."
                     else -> "Accept the Terms & Privacy Policy to continue."
                 },
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(start = 12.dp, top = 4.dp)
+            )
+        }
+
+        signupError?.let { message ->
+            Text(
+                text = message,
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.error,
                 modifier = Modifier.padding(start = 12.dp, top = 4.dp)
@@ -725,8 +881,21 @@ fun SignupScreen(
         Button(
             onClick = {
                 showSignupValidation = true
-                if (signupValid) onSignUpClick()
+                signupError = null
+                if (signupValid && !isSigningUp) {
+                    coroutineScope.launch {
+                        isSigningUp = true
+                        onSignUpClick(fullName, email, password)
+                            .onSuccess { onSignUpSuccess(email.trim()) }
+                            .onFailure { error ->
+                                signupError = error.message
+                                    ?: "We couldn't create your account. Please try again."
+                            }
+                        isSigningUp = false
+                    }
+                }
             },
+            enabled = !isSigningUp,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp),
@@ -736,11 +905,19 @@ fun SignupScreen(
                 contentColor = MaterialTheme.colorScheme.onPrimary
             )
         ) {
-            Text(
-                text = "Sign Up",
-                fontSize = 17.sp,
-                fontWeight = FontWeight.SemiBold
-            )
+            if (isSigningUp) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(24.dp),
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    strokeWidth = 2.dp
+                )
+            } else {
+                Text(
+                    text = "Sign Up",
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(28.dp))
@@ -762,7 +939,14 @@ fun SignupScreen(
         Spacer(modifier = Modifier.height(24.dp))
 
         OutlinedButton(
-            onClick = {},
+            onClick = {
+                signupError = null
+                coroutineScope.launch {
+                    onGoogleClick().onFailure { error ->
+                        signupError = error.message ?: "Google sign-in is unavailable."
+                    }
+                }
+            },
             modifier = Modifier
                 .fillMaxWidth()
                 .height(54.dp),
@@ -775,7 +959,7 @@ fun SignupScreen(
             )
         }
 
-        Spacer(modifier = Modifier.weight(1f))
+        Spacer(modifier = Modifier.height(28.dp))
 
         Row(
             modifier = Modifier.align(Alignment.CenterHorizontally)
@@ -794,9 +978,17 @@ fun SignupScreen(
 @Composable
 fun VerifyEmailScreen(
     onBack: () -> Unit,
-    onVerifyClick: () -> Unit = {}
+    email: String,
+    onVerifyClick: suspend (String, String) -> Result<Unit>,
+    onVerifySuccess: () -> Unit = {},
+    onResendClick: suspend (String) -> Result<Unit>
 ) {
     var code by remember { mutableStateOf(List(6) { "" }) }
+    var verificationError by remember { mutableStateOf<String?>(null) }
+    var resendMessage by remember { mutableStateOf<String?>(null) }
+    var isVerifying by remember { mutableStateOf(false) }
+    var isResending by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
 
     Column(
         modifier = Modifier
@@ -851,7 +1043,7 @@ fun VerifyEmailScreen(
         Spacer(modifier = Modifier.height(12.dp))
 
         Text(
-            text = "We've sent a 6-digit code to your email",
+            text = "We've sent a 6-digit code to\n$email",
             fontSize = 16.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center
@@ -894,9 +1086,32 @@ fun VerifyEmailScreen(
 
         Spacer(modifier = Modifier.height(32.dp))
 
+        verificationError?.let { message ->
+            Text(
+                text = message,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.error,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(bottom = 10.dp)
+            )
+        }
+
         Button(
-            onClick = onVerifyClick,
-            enabled = code.all { it.isNotBlank() },
+            onClick = {
+                verificationError = null
+                resendMessage = null
+                coroutineScope.launch {
+                    isVerifying = true
+                    onVerifyClick(email, code.joinToString(""))
+                        .onSuccess { onVerifySuccess() }
+                        .onFailure { error ->
+                            verificationError = error.message
+                                ?: "The code is invalid or expired. Please try again."
+                        }
+                    isVerifying = false
+                }
+            },
+            enabled = code.all { it.isNotBlank() } && !isVerifying,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp),
@@ -906,11 +1121,19 @@ fun VerifyEmailScreen(
                 contentColor = MaterialTheme.colorScheme.onPrimary
             )
         ) {
-            Text(
-                text = "Verify Email",
-                fontSize = 17.sp,
-                fontWeight = FontWeight.SemiBold
-            )
+            if (isVerifying) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(24.dp),
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    strokeWidth = 2.dp
+                )
+            } else {
+                Text(
+                    text = "Verify Email",
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(28.dp))
@@ -924,13 +1147,35 @@ fun VerifyEmailScreen(
         Spacer(modifier = Modifier.height(6.dp))
 
         Text(
-            text = "Resend Code",
+            text = if (isResending) "Sending..." else "Resend Code",
             fontSize = 14.sp,
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.primary,
             textDecoration = TextDecoration.Underline,
-            modifier = Modifier.clickable { }
+            modifier = Modifier.clickable(enabled = !isResending) {
+                verificationError = null
+                resendMessage = null
+                coroutineScope.launch {
+                    isResending = true
+                    onResendClick(email)
+                        .onSuccess { resendMessage = "A new code was sent." }
+                        .onFailure { error ->
+                            verificationError = error.message
+                                ?: "We couldn't resend the code. Please try again."
+                        }
+                    isResending = false
+                }
+            }
         )
+
+        resendMessage?.let { message ->
+            Text(
+                text = message,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+        }
     }
 }
 
