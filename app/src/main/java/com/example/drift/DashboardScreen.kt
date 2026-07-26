@@ -11,6 +11,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -21,7 +26,15 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.drift.data.assignment.Assignment
+import com.example.drift.data.assignment.AssignmentRepository
 import com.example.drift.ui.theme.*
+import java.time.LocalDate
+import java.time.LocalTime
+import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
+import java.time.temporal.ChronoUnit
+import java.util.Locale
 
 private val HomeShape = RoundedCornerShape(14.dp)
 
@@ -36,6 +49,14 @@ fun DashboardScreen(
     onProfileClick: () -> Unit = {},
     onSettingsClick: () -> Unit = {}
 ) {
+    var upcomingAssignments by remember { mutableStateOf(emptyList<Assignment>()) }
+
+    LaunchedEffect(Unit) {
+        AssignmentRepository.loadAssignments().onSuccess { assignments ->
+            upcomingAssignments = assignments.filterNot(Assignment::isCompleted).take(3)
+        }
+    }
+
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
@@ -67,7 +88,7 @@ fun DashboardScreen(
             Spacer(Modifier.height(25.dp))
             SectionTitle("COMING UP", "View tasks", onTasksClick)
             Spacer(Modifier.height(9.dp))
-            UpcomingTasks(onTasksClick)
+            UpcomingTasks(upcomingAssignments, onTasksClick)
             Spacer(Modifier.height(28.dp))
         }
     }
@@ -181,7 +202,62 @@ private fun UsageBreakdown() {
 }
 
 @Composable
-private fun UpcomingTasks(onClick: () -> Unit) {
+private fun UpcomingTasks(assignments: List<Assignment>, onClick: () -> Unit) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface, HomeShape)
+            .border(1.dp, MaterialTheme.colorScheme.outline, HomeShape)
+            .clickable(onClick = onClick)
+    ) {
+        if (assignments.isEmpty()) {
+            Text(
+                "No upcoming assignments. Tap to add one.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(16.dp)
+            )
+        } else {
+            assignments.forEachIndexed { index, assignment ->
+                TaskSummaryRow(
+                    assignment.title,
+                    assignment.dashboardDeadlineLabel(),
+                    assignment.priority.uppercase()
+                )
+                if (index < assignments.lastIndex) {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                }
+            }
+        }
+    }
+}
+
+private fun Assignment.dashboardDeadlineLabel(): String {
+    val date = LocalDate.parse(deadlineDate)
+    val days = ChronoUnit.DAYS.between(LocalDate.now(), date)
+    val dateLabel = when (days) {
+        0L -> "Today"
+        1L -> "Tomorrow"
+        else -> if (days < 0) {
+            "${-days} days overdue"
+        } else {
+            date.format(
+                DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM)
+                    .withLocale(Locale.getDefault())
+            )
+        }
+    }
+    val timeLabel = deadlineTime?.let {
+        LocalTime.parse(it).format(
+            DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT)
+                .withLocale(Locale.getDefault())
+        )
+    }
+    return timeLabel?.let { "$dateLabel · $it" } ?: dateLabel
+}
+
+@Composable
+private fun PreviewUpcomingTasks(onClick: () -> Unit) {
     Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, HomeShape).border(1.dp, MaterialTheme.colorScheme.outline, HomeShape).clickable(onClick = onClick)) {
         TaskSummaryRow("AI report", "Tomorrow · 11:59 PM", "HIGH")
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)

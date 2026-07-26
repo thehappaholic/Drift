@@ -7,52 +7,56 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.ui.platform.LocalContext
-import java.text.SimpleDateFormat
+import com.example.drift.data.assignment.Assignment
+import com.example.drift.data.assignment.AssignmentDraft
+import com.example.drift.data.assignment.AssignmentRepository
+import kotlinx.coroutines.launch
+import java.time.LocalDate
+import java.time.LocalTime
+import java.time.YearMonth
+import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
+import java.time.temporal.ChronoUnit
 import java.util.Calendar
 import java.util.Locale
-
-private data class DriftTask(
-    val title: String,
-    val course: String,
-    val deadline: String,
-    val priority: String,
-    val isCompleted: Boolean = false
-)
 
 @Composable
 fun TasksScreen(
@@ -62,30 +66,44 @@ fun TasksScreen(
     onInsightsClick: () -> Unit = {},
 ) {
     var selectedTab by remember { mutableStateOf("Upcoming") }
-    var showAddTask by remember { mutableStateOf(false) }
+    var assignments by remember { mutableStateOf(emptyList<Assignment>()) }
+    var loading by remember { mutableStateOf(true) }
+    var saving by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var editorAssignment by remember { mutableStateOf<Assignment?>(null) }
+    var showEditor by remember { mutableStateOf(false) }
+    var deleteCandidate by remember { mutableStateOf<Assignment?>(null) }
     var showCalendarOverview by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
-    var newTitle by remember { mutableStateOf("") }
-    var newCourse by remember { mutableStateOf("") }
-    var newDeadlineDate by remember { mutableStateOf("") }
-    var newDeadlineTime by remember { mutableStateOf("") }
-    var newPriority by remember { mutableStateOf("Medium") }
-    val context = LocalContext.current
-    val calendar = remember { Calendar.getInstance() }
+    fun loadAssignments() {
+        scope.launch {
+            loading = true
+            AssignmentRepository.loadAssignments()
+                .onSuccess { assignments = it }
+                .onFailure { errorMessage = assignmentError(it) }
+            loading = false
+        }
+    }
 
-    val tasks = remember {
-        mutableStateListOf(
-            DriftTask("AI Report", "ML", "Tomorrow, 11:59 PM", "High"),
-            DriftTask("UI Design", "HCI", "3 days left", "Medium"),
-            DriftTask("Testing Log", "SE", "Completed yesterday", "Low", isCompleted = true),
-            DriftTask("Research Paper", "DS", "5 days left", "Medium")
-        )
+    LaunchedEffect(Unit) {
+        AssignmentRepository.loadAssignments()
+            .onSuccess { assignments = it }
+            .onFailure { errorMessage = assignmentError(it) }
+        loading = false
     }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
-            DriftBottomNavigation(DriftDestination.Tasks, onHomeClick, onBudgetClick, onFocusClick, {}, onInsightsClick)
+            DriftBottomNavigation(
+                DriftDestination.Tasks,
+                onHomeClick,
+                onBudgetClick,
+                onFocusClick,
+                {},
+                onInsightsClick
+            )
         }
     ) { innerPadding ->
         Column(
@@ -95,446 +113,621 @@ fun TasksScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp)
         ) {
-            Spacer(modifier = Modifier.height(28.dp))
+            Spacer(Modifier.height(28.dp))
 
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "<",
-                    fontSize = 28.sp,
-                    modifier = Modifier.clickable { onHomeClick() }
+                    "‹",
+                    fontSize = 32.sp,
+                    modifier = Modifier.clickable(onClick = onHomeClick)
                 )
-
+                Text("Assignments", fontSize = 21.sp, fontWeight = FontWeight.SemiBold)
                 Text(
-                    text = "Tasks",
-                    fontSize = 21.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-
-                Text(
-                    text = "+",
+                    "+",
                     fontSize = 30.sp,
                     fontWeight = FontWeight.Light,
                     modifier = Modifier.clickable {
-                        showAddTask = true
+                        editorAssignment = null
+                        showEditor = true
                     }
                 )
             }
 
-            Spacer(modifier = Modifier.height(28.dp))
+            Spacer(Modifier.height(24.dp))
+            AssignmentTabs(selectedTab) { selectedTab = it }
+            Spacer(Modifier.height(18.dp))
 
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(10.dp))
-                    .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(10.dp))
-                    .padding(4.dp)
-            ) {
-                listOf("Upcoming", "Completed", "All").forEach { tab ->
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .background(
-                                if (selectedTab == tab) MaterialTheme.colorScheme.primary else Color.Transparent,
-                                RoundedCornerShape(7.dp)
-                            )
-                            .clickable { selectedTab = tab }
-                            .padding(vertical = 10.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+            if (errorMessage != null) {
+                ErrorCard(
+                    message = errorMessage.orEmpty(),
+                    onRetry = {
+                        errorMessage = null
+                        loadAssignments()
+                    }
+                )
+                Spacer(Modifier.height(14.dp))
+            }
+
+            when {
+                loading -> {
+                    Box(
+                        Modifier.fillMaxWidth().padding(vertical = 52.dp),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = tab,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = if (selectedTab == tab) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        CircularProgressIndicator(Modifier.size(28.dp))
                     }
                 }
-            }
 
-            Spacer(modifier = Modifier.height(18.dp))
-
-            val visibleTasks = when (selectedTab) {
-                "Upcoming" -> tasks.filterNot { it.isCompleted }
-                "Completed" -> tasks.filter { it.isCompleted }
-                else -> tasks
-            }
-
-            visibleTasks.forEach { task ->
-                TaskCard(
-                    task = task,
-                    onToggleComplete = {
-                        val index = tasks.indexOf(task)
-                        if (index >= 0) tasks[index] = task.copy(isCompleted = !task.isCompleted)
+                else -> {
+                    val visible = when (selectedTab) {
+                        "Upcoming" -> assignments.filterNot(Assignment::isCompleted)
+                        "Completed" -> assignments.filter(Assignment::isCompleted)
+                        else -> assignments
                     }
-                )
-                Spacer(modifier = Modifier.height(12.dp))
+
+                    visible.forEach { assignment ->
+                        AssignmentCard(
+                            assignment = assignment,
+                            onToggleComplete = {
+                                scope.launch {
+                                    val newValue = !assignment.isCompleted
+                                    AssignmentRepository.setCompleted(assignment.id, newValue)
+                                        .onSuccess {
+                                            assignments = assignments
+                                                .map {
+                                                    if (it.id == assignment.id) {
+                                                        it.copy(isCompleted = newValue)
+                                                    } else {
+                                                        it
+                                                    }
+                                                }
+                                                .sortedAssignments()
+                                        }
+                                        .onFailure { errorMessage = assignmentError(it) }
+                                }
+                            },
+                            onEdit = {
+                                editorAssignment = assignment
+                                showEditor = true
+                            },
+                            onDelete = { deleteCandidate = assignment }
+                        )
+                        Spacer(Modifier.height(12.dp))
+                    }
+
+                    if (visible.isEmpty()) {
+                        EmptyAssignments(selectedTab) {
+                            editorAssignment = null
+                            showEditor = true
+                        }
+                    }
+
+                    Spacer(Modifier.height(6.dp))
+                    DeadlineSummaryCard(
+                        assignments = assignments.filterNot(Assignment::isCompleted),
+                        onViewCalendar = { showCalendarOverview = true }
+                    )
+                }
             }
-
-            if (visibleTasks.isEmpty()) {
-                Text(
-                    if (selectedTab == "Completed") "Completed tasks will appear here." else "Nothing due right now.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 28.dp)
-                )
-            }
-
-            DeadlineCrunchCard(
-                onViewCalendar = { showCalendarOverview = true }
-            )
-
-            Spacer(modifier = Modifier.height(28.dp))
+            Spacer(Modifier.height(28.dp))
         }
     }
-        if (showAddTask) {
-            AlertDialog(
-                onDismissRequest = {
-                    showAddTask = false
-                },
-                title = {
-                    Text(
-                        text = "Add Task",
-                        fontWeight = FontWeight.Bold
+
+    if (showEditor) {
+        AssignmentEditorDialog(
+            assignment = editorAssignment,
+            saving = saving,
+            onDismiss = { if (!saving) showEditor = false },
+            onSave = { draft ->
+                scope.launch {
+                    saving = true
+                    AssignmentRepository.saveAssignment(
+                        draft = draft,
+                        existingId = editorAssignment?.id,
+                        isCompleted = editorAssignment?.isCompleted ?: false
                     )
-                },
-                text = {
-                    Column {
-                        OutlinedTextField(
-                            value = newTitle,
-                            onValueChange = { newTitle = it },
-                            label = { Text("Task title") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        OutlinedTextField(
-                            value = newCourse,
-                            onValueChange = { newCourse = it },
-                            label = { Text("Course") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        Text("Deadline date *", fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                        Spacer(modifier = Modifier.height(7.dp))
-                        OutlinedButton(
-                            onClick = {
-                                DatePickerDialog(
-                                    context,
-                                    { _, year, month, day ->
-                                        calendar.set(year, month, day)
-                                        newDeadlineDate = SimpleDateFormat("EEE, d MMM yyyy", Locale.getDefault())
-                                            .format(calendar.time)
-                                    },
-                                    calendar.get(Calendar.YEAR),
-                                    calendar.get(Calendar.MONTH),
-                                    calendar.get(Calendar.DAY_OF_MONTH)
-                                ).apply {
-                                    datePicker.minDate = System.currentTimeMillis() - 1000
-                                }.show()
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(10.dp)
-                        ) {
-                            Text(if (newDeadlineDate.isBlank()) "Select date" else newDeadlineDate)
+                        .onSuccess { saved ->
+                            assignments = (assignments.filterNot { it.id == saved.id } + saved)
+                                .sortedAssignments()
+                            showEditor = false
+                            editorAssignment = null
                         }
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        Text("Deadline time (optional)", fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                        Spacer(modifier = Modifier.height(7.dp))
-                        OutlinedButton(
-                            onClick = {
-                                TimePickerDialog(
-                                    context,
-                                    { _, hour, minute ->
-                                        calendar.set(Calendar.HOUR_OF_DAY, hour)
-                                        calendar.set(Calendar.MINUTE, minute)
-                                        newDeadlineTime = SimpleDateFormat("h:mm a", Locale.getDefault())
-                                            .format(calendar.time)
-                                    },
-                                    calendar.get(Calendar.HOUR_OF_DAY),
-                                    calendar.get(Calendar.MINUTE),
-                                    DateFormat.is24HourFormat(context)
-                                ).show()
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(10.dp)
-                        ) {
-                            Text(if (newDeadlineTime.isBlank()) "Select time" else newDeadlineTime)
-                        }
-
-                        Spacer(modifier = Modifier.height(14.dp))
-
-                        Text(
-                            text = "Priority",
-                            fontWeight = FontWeight.SemiBold
-                        )
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            listOf("Low", "Medium", "High").forEach { priority ->
-                                val palette = riskPalette(priority)
-                                val selected = newPriority == priority
-                                Text(
-                                    text = priority,
-                                    modifier = Modifier
-                                        .clickable {
-                                            newPriority = priority
-                                        }
-                                        .background(
-                                            color = palette.background,
-                                            shape = RoundedCornerShape(20.dp)
-                                        )
-                                        .border(
-                                            if (selected) 2.dp else 1.dp,
-                                            if (selected) palette.foreground else Color.Transparent,
-                                            RoundedCornerShape(20.dp)
-                                        )
-                                        .padding(
-                                            horizontal = 12.dp,
-                                            vertical = 7.dp
-                                        ),
-                                    color = palette.foreground,
-                                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
-                                )
-                            }
-                        }
-                    }
-                },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            if (newTitle.isNotBlank() && newDeadlineDate.isNotBlank()) {
-                                tasks.add(
-                                    DriftTask(
-                                        title = newTitle,
-                                        course = newCourse.ifBlank {
-                                            "General"
-                                        },
-                                        deadline = listOf(newDeadlineDate, newDeadlineTime)
-                                            .filter { it.isNotBlank() }.joinToString(" at "),
-                                        priority = newPriority
-                                    )
-                                )
-
-                                newTitle = ""
-                                newCourse = ""
-                                newDeadlineDate = ""
-                                newDeadlineTime = ""
-                                newPriority = "Medium"
-                                showAddTask = false
-                            }
-                        },
-                        enabled = newTitle.isNotBlank() && newDeadlineDate.isNotBlank()
-                    ) {
-                        Text("Add")
-                    }
-                },
-                dismissButton = {
-                    TextButton(
-                        onClick = {
-                            showAddTask = false
-                        }
-                    ) {
-                        Text("Cancel")
-                    }
+                        .onFailure { errorMessage = assignmentError(it) }
+                    saving = false
                 }
-            )
-        }
+            }
+        )
+    }
 
-        if (showCalendarOverview) {
-            TaskCalendarDialog(
-                tasks = tasks,
-                onDismiss = { showCalendarOverview = false }
-            )
-        }
+    deleteCandidate?.let { assignment ->
+        AlertDialog(
+            onDismissRequest = { deleteCandidate = null },
+            title = { Text("Delete assignment?") },
+            text = { Text("“${assignment.title}” will be permanently removed.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        deleteCandidate = null
+                        scope.launch {
+                            AssignmentRepository.deleteAssignment(assignment.id)
+                                .onSuccess {
+                                    assignments = assignments.filterNot { it.id == assignment.id }
+                                }
+                                .onFailure { errorMessage = assignmentError(it) }
+                        }
+                    }
+                ) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteCandidate = null }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (showCalendarOverview) {
+        AssignmentCalendarDialog(
+            assignments = assignments.filterNot(Assignment::isCompleted),
+            onDismiss = { showCalendarOverview = false }
+        )
+    }
 }
 
 @Composable
-private fun TaskCard(task: DriftTask, onToggleComplete: () -> Unit) {
-    val palette = riskPalette(task.priority)
+private fun AssignmentTabs(selected: String, onSelect: (String) -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(10.dp))
+            .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(10.dp))
+            .padding(4.dp)
+    ) {
+        listOf("Upcoming", "Completed", "All").forEach { tab ->
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .background(
+                        if (selected == tab) MaterialTheme.colorScheme.primary else Color.Transparent,
+                        RoundedCornerShape(7.dp)
+                    )
+                    .clickable { onSelect(tab) }
+                    .padding(vertical = 10.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    tab,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = if (selected == tab) {
+                        MaterialTheme.colorScheme.onPrimary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AssignmentCard(
+    assignment: Assignment,
+    onToggleComplete: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val palette = riskPalette(assignment.priority)
     Column(
-        modifier = Modifier
+        Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(14.dp))
-            .border(
-                1.dp,
-                MaterialTheme.colorScheme.outline,
-                RoundedCornerShape(14.dp)
-            )
+            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(14.dp))
             .padding(16.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column {
-                Text(
-                    text = task.title,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                Text(
-                    text = task.course,
-                    fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Column(Modifier.weight(1f)) {
+                Text(assignment.title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                if (assignment.course.isNotBlank()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        assignment.course,
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
-
             Text(
-                text = task.priority,
+                assignment.priority,
                 fontSize = 11.sp,
-                modifier = Modifier
-                    .background(
-                        palette.background,
-                        RoundedCornerShape(20.dp)
-                    )
-                    .border(
-                        1.dp,
-                        palette.background,
-                        RoundedCornerShape(20.dp)
-                    )
-                    .padding(horizontal = 12.dp, vertical = 5.dp),
                 color = palette.foreground,
-                fontWeight = FontWeight.Medium
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier
+                    .background(palette.background, RoundedCornerShape(20.dp))
+                    .padding(horizontal = 12.dp, vertical = 5.dp)
             )
         }
 
-        Spacer(modifier = Modifier.height(14.dp))
-
+        Spacer(Modifier.height(14.dp))
         Text(
-            text = task.deadline,
-            fontSize = 14.sp
+            assignment.deadlineLabel(),
+            fontSize = 14.sp,
+            color = if (assignment.isOverdue()) {
+                MaterialTheme.colorScheme.error
+            } else {
+                MaterialTheme.colorScheme.onSurface
+            }
         )
-
         Spacer(Modifier.height(12.dp))
-        Text(
-            if (task.isCompleted) "Move back to upcoming" else "Mark as completed",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.clickable(onClick = onToggleComplete).padding(vertical = 4.dp)
-        )
+        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.65f))
+        Spacer(Modifier.height(8.dp))
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                if (assignment.isCompleted) "Move to upcoming" else "Mark completed",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.clickable(onClick = onToggleComplete).padding(vertical = 5.dp)
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text(
+                    "Edit",
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.clickable(onClick = onEdit).padding(vertical = 5.dp)
+                )
+                Text(
+                    "Delete",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.clickable(onClick = onDelete).padding(vertical = 5.dp)
+                )
+            }
+        }
     }
 }
 
 @Composable
-private fun DeadlineCrunchCard(onViewCalendar: () -> Unit) {
+private fun EmptyAssignments(selectedTab: String, onAdd: () -> Unit) {
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
-            .border(
-                1.dp,
-                MaterialTheme.colorScheme.outline,
-                RoundedCornerShape(14.dp)
-            )
-            .padding(17.dp)
+        Modifier.fillMaxWidth().padding(vertical = 30.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
-            text = "Deadline Crunch",
-            fontSize = 16.sp,
-            fontWeight = FontWeight.SemiBold
+            when (selectedTab) {
+                "Completed" -> "Completed assignments will appear here."
+                "All" -> "No assignments yet."
+                else -> "Nothing due right now."
+            },
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+        if (selectedTab != "Completed") {
+            Spacer(Modifier.height(12.dp))
+            TextButton(onClick = onAdd) { Text("Add your first assignment") }
+        }
+    }
+}
 
-        Spacer(modifier = Modifier.height(6.dp))
-
+@Composable
+private fun ErrorCard(message: String, onRetry: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.errorContainer, RoundedCornerShape(12.dp))
+            .padding(14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
         Text(
-            text = "2 deadlines are close together.",
+            message,
+            color = MaterialTheme.colorScheme.onErrorContainer,
+            fontSize = 13.sp,
+            modifier = Modifier.weight(1f)
+        )
+        TextButton(onClick = onRetry) { Text("Retry") }
+    }
+}
+
+@Composable
+private fun AssignmentEditorDialog(
+    assignment: Assignment?,
+    saving: Boolean,
+    onDismiss: () -> Unit,
+    onSave: (AssignmentDraft) -> Unit
+) {
+    var title by remember(assignment?.id) { mutableStateOf(assignment?.title.orEmpty()) }
+    var course by remember(assignment?.id) { mutableStateOf(assignment?.course.orEmpty()) }
+    var deadlineDate by remember(assignment?.id) {
+        mutableStateOf(assignment?.deadlineDate.orEmpty())
+    }
+    var deadlineTime by remember(assignment?.id) {
+        mutableStateOf(assignment?.deadlineTime.orEmpty())
+    }
+    var priority by remember(assignment?.id) {
+        mutableStateOf(assignment?.priority ?: "Medium")
+    }
+    val context = LocalContext.current
+    val selectedCalendar = remember(assignment?.id) {
+        Calendar.getInstance().apply {
+            assignment?.deadlineDate
+                ?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+                ?.let { date -> set(date.year, date.monthValue - 1, date.dayOfMonth) }
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                if (assignment == null) "Add assignment" else "Edit assignment",
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it.take(200) },
+                    label = { Text("Assignment title *") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = course,
+                    onValueChange = { course = it },
+                    label = { Text("Course or subject") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(12.dp))
+                Text("Deadline date *", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                Spacer(Modifier.height(6.dp))
+                OutlinedButton(
+                    onClick = {
+                        DatePickerDialog(
+                            context,
+                            { _, year, month, day ->
+                                selectedCalendar.set(year, month, day)
+                                deadlineDate = LocalDate.of(year, month + 1, day).toString()
+                            },
+                            selectedCalendar.get(Calendar.YEAR),
+                            selectedCalendar.get(Calendar.MONTH),
+                            selectedCalendar.get(Calendar.DAY_OF_MONTH)
+                        ).apply {
+                            if (assignment == null) {
+                                datePicker.minDate = System.currentTimeMillis() - 1_000
+                            }
+                        }.show()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text(
+                        deadlineDate.takeIf(String::isNotBlank)
+                            ?.let(::formatDate)
+                            ?: "Select date"
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
+                Text("Deadline time (optional)", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                Spacer(Modifier.height(6.dp))
+                OutlinedButton(
+                    onClick = {
+                        val initialTime = deadlineTime
+                            .takeIf(String::isNotBlank)
+                            ?.let { runCatching { LocalTime.parse(it) }.getOrNull() }
+                            ?: LocalTime.now()
+                        TimePickerDialog(
+                            context,
+                            { _, hour, minute ->
+                                deadlineTime = LocalTime.of(hour, minute).toString()
+                            },
+                            initialTime.hour,
+                            initialTime.minute,
+                            DateFormat.is24HourFormat(context)
+                        ).show()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text(
+                        deadlineTime.takeIf(String::isNotBlank)
+                            ?.let(::formatTime)
+                            ?: "Select time"
+                    )
+                }
+                if (deadlineTime.isNotBlank()) {
+                    TextButton(onClick = { deadlineTime = "" }) { Text("Remove time") }
+                }
+                Spacer(Modifier.height(8.dp))
+                Text("Priority", fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("Low", "Medium", "High").forEach { option ->
+                        val palette = riskPalette(option)
+                        val selected = priority == option
+                        Text(
+                            option,
+                            color = palette.foreground,
+                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                            modifier = Modifier
+                                .clickable { priority = option }
+                                .background(palette.background, RoundedCornerShape(20.dp))
+                                .border(
+                                    if (selected) 2.dp else 1.dp,
+                                    if (selected) palette.foreground else Color.Transparent,
+                                    RoundedCornerShape(20.dp)
+                                )
+                                .padding(horizontal = 12.dp, vertical = 7.dp)
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    onSave(
+                        AssignmentDraft(
+                            title = title,
+                            course = course,
+                            deadlineDate = deadlineDate,
+                            deadlineTime = deadlineTime.takeIf(String::isNotBlank),
+                            priority = priority
+                        )
+                    )
+                },
+                enabled = title.isNotBlank() && deadlineDate.isNotBlank() && !saving,
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+            ) {
+                if (saving) {
+                    CircularProgressIndicator(
+                        Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onPrimary
+                    )
+                } else {
+                    Text(if (assignment == null) "Add" else "Save")
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !saving) { Text("Cancel") }
+        }
+    )
+}
+
+@Composable
+private fun DeadlineSummaryCard(
+    assignments: List<Assignment>,
+    onViewCalendar: () -> Unit
+) {
+    val closeDeadlines = assignments.count {
+        val days = ChronoUnit.DAYS.between(LocalDate.now(), LocalDate.parse(it.deadlineDate))
+        days in 0..7
+    }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
+            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(14.dp))
+            .padding(17.dp)
+    ) {
+        Text("Deadline overview", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(6.dp))
+        Text(
+            when (closeDeadlines) {
+                0 -> "No deadlines in the next 7 days."
+                1 -> "1 deadline is coming up this week."
+                else -> "$closeDeadlines deadlines are coming up this week."
+            },
             fontSize = 13.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-
-        Spacer(modifier = Modifier.height(12.dp))
-
+        Spacer(Modifier.height(10.dp))
         Text(
-            text = "View calendar  →",
+            "View calendar →",
             fontSize = 14.sp,
             fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.primary,
             modifier = Modifier.clickable(onClick = onViewCalendar).padding(vertical = 4.dp)
         )
     }
 }
 
 @Composable
-private fun TaskCalendarDialog(
-    tasks: List<DriftTask>,
+private fun AssignmentCalendarDialog(
+    assignments: List<Assignment>,
     onDismiss: () -> Unit
 ) {
-    val today = remember { Calendar.getInstance() }
-    val year = today.get(Calendar.YEAR)
-    val month = today.get(Calendar.MONTH)
-    val firstDay = remember {
-        Calendar.getInstance().apply { set(year, month, 1) }
+    val today = LocalDate.now()
+    var displayedMonth by remember { mutableStateOf(YearMonth.from(today)) }
+    val firstDay = displayedMonth.atDay(1)
+    val leadingBlanks = firstDay.dayOfWeek.value % 7
+    val daysInMonth = displayedMonth.lengthOfMonth()
+    val currentMonthAssignments = assignments.filter {
+        runCatching { LocalDate.parse(it.deadlineDate) }.getOrNull()?.let { date ->
+            YearMonth.from(date) == displayedMonth
+        } == true
     }
-    val leadingBlanks = firstDay.get(Calendar.DAY_OF_WEEK) - 1
-    val daysInMonth = firstDay.getActualMaximum(Calendar.DAY_OF_MONTH)
-    val dueDays = tasks.associateWith { taskDueDay(it.deadline, today) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
             Column {
-                Text("Task calendar", fontWeight = FontWeight.SemiBold)
-                Text(
-                    SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(firstDay.time),
-                    fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Text("Assignment calendar", fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(6.dp))
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(
+                        onClick = { displayedMonth = displayedMonth.minusMonths(1) }
+                    ) {
+                        Text("‹", fontSize = 24.sp)
+                    }
+                    Text(
+                        displayedMonth.format(DateTimeFormatter.ofPattern("MMMM yyyy")),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    TextButton(
+                        onClick = { displayedMonth = displayedMonth.plusMonths(1) }
+                    ) {
+                        Text("›", fontSize = 24.sp)
+                    }
+                }
             }
         },
         text = {
-            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
                 Row(Modifier.fillMaxWidth()) {
-                    listOf("S", "M", "T", "W", "T", "F", "S").forEach { day ->
+                    listOf("S", "M", "T", "W", "T", "F", "S").forEach { label ->
                         Text(
-                            day,
+                            label,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Medium,
-                            color = Color(0xFF777770),
                             modifier = Modifier.weight(1f),
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            textAlign = TextAlign.Center
                         )
                     }
                 }
-
                 Spacer(Modifier.height(8.dp))
-
-                val cells = leadingBlanks + daysInMonth
-                repeat((cells + 6) / 7) { week ->
+                val cellCount = leadingBlanks + daysInMonth
+                repeat((cellCount + 6) / 7) { week ->
                     Row(Modifier.fillMaxWidth()) {
                         repeat(7) { column ->
                             val day = week * 7 + column - leadingBlanks + 1
-                            val taskForDay = dueDays.entries.firstOrNull { it.value == day }?.key
+                            val dayAssignments = currentMonthAssignments.filter {
+                                LocalDate.parse(it.deadlineDate).dayOfMonth == day
+                            }
                             Box(
-                                modifier = Modifier.weight(1f).height(38.dp),
+                                Modifier.weight(1f).height(38.dp),
                                 contentAlignment = Alignment.Center
                             ) {
                                 if (day in 1..daysInMonth) {
-                                    val palette = taskForDay?.let { riskPalette(it.priority) }
+                                    val palette = dayAssignments.firstOrNull()
+                                        ?.let { riskPalette(it.priority) }
                                     Box(
-                                        modifier = Modifier
+                                        Modifier
                                             .size(32.dp)
                                             .background(
-                                                when {
-                                                    palette != null -> palette.background
-                                                    day == today.get(Calendar.DAY_OF_MONTH) -> Color(0xFFE8E7E2)
-                                                    else -> Color.Transparent
-                                                },
+                                                palette?.background
+                                                    ?: if (
+                                                        displayedMonth == YearMonth.from(today) &&
+                                                        day == today.dayOfMonth
+                                                    ) {
+                                                        MaterialTheme.colorScheme.surfaceVariant
+                                                    } else {
+                                                        Color.Transparent
+                                                    },
                                                 RoundedCornerShape(9.dp)
                                             ),
                                         contentAlignment = Alignment.Center
@@ -542,8 +735,13 @@ private fun TaskCalendarDialog(
                                         Text(
                                             day.toString(),
                                             fontSize = 12.sp,
-                                            fontWeight = if (taskForDay != null) FontWeight.SemiBold else FontWeight.Normal,
-                                            color = palette?.foreground ?: MaterialTheme.colorScheme.onSurface
+                                            fontWeight = if (dayAssignments.isNotEmpty()) {
+                                                FontWeight.SemiBold
+                                            } else {
+                                                FontWeight.Normal
+                                            },
+                                            color = palette?.foreground
+                                                ?: MaterialTheme.colorScheme.onSurface
                                         )
                                     }
                                 }
@@ -551,46 +749,99 @@ private fun TaskCalendarDialog(
                         }
                     }
                 }
-
                 Spacer(Modifier.height(18.dp))
                 Text("Upcoming deadlines", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(8.dp))
-                tasks.forEach { task ->
-                    val palette = riskPalette(task.priority)
-                    Row(
-                        Modifier.fillMaxWidth().padding(vertical = 5.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(Modifier.size(8.dp).background(palette.background, RoundedCornerShape(3.dp)))
-                        Spacer(Modifier.size(8.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(task.title, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                            Text(task.deadline, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (assignments.isEmpty()) {
+                    Text(
+                        "No upcoming assignments.",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    assignments.sortedAssignments().take(8).forEach { assignment ->
+                        val palette = riskPalette(assignment.priority)
+                        Row(
+                            Modifier.fillMaxWidth().padding(vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                Modifier
+                                    .size(8.dp)
+                                    .background(palette.background, RoundedCornerShape(3.dp))
+                            )
+                            Spacer(Modifier.size(8.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    assignment.title,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Text(
+                                    assignment.deadlineLabel(),
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
                 }
             }
         },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Done") }
-        }
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } }
     )
 }
 
-private fun taskDueDay(deadline: String, today: Calendar): Int? {
-    val currentDay = today.get(Calendar.DAY_OF_MONTH)
-    return when {
-        deadline.startsWith("Tomorrow", ignoreCase = true) -> currentDay + 1
-        Regex("(\\d+) days? left", RegexOption.IGNORE_CASE).find(deadline) != null -> {
-            currentDay + (Regex("(\\d+) days? left", RegexOption.IGNORE_CASE)
-                .find(deadline)?.groupValues?.get(1)?.toIntOrNull() ?: 0)
+private fun List<Assignment>.sortedAssignments(): List<Assignment> =
+    sortedWith(
+        compareBy<Assignment> { it.isCompleted }
+            .thenBy { it.deadlineDate }
+            .thenBy { it.deadlineTime ?: "23:59" }
+    )
+
+private fun Assignment.deadlineLabel(): String {
+    val date = LocalDate.parse(deadlineDate)
+    val days = ChronoUnit.DAYS.between(LocalDate.now(), date)
+    val dateText = when (days) {
+        -1L -> "Yesterday"
+        0L -> "Today"
+        1L -> "Tomorrow"
+        else -> if (days < -1) {
+            "${-days} days overdue"
+        } else {
+            formatDate(deadlineDate)
         }
-        Regex("(\\d+) week left", RegexOption.IGNORE_CASE).containsMatchIn(deadline) -> currentDay + 7
-        else -> runCatching {
-            val datePart = deadline.substringBefore(" at ")
-            val date = SimpleDateFormat("EEE, d MMM yyyy", Locale.getDefault()).parse(datePart)
-            Calendar.getInstance().apply { time = date!! }.get(Calendar.DAY_OF_MONTH)
-        }.getOrNull()
     }
+    return deadlineTime?.let { "$dateText · ${formatTime(it)}" } ?: dateText
 }
 
+private fun Assignment.isOverdue(): Boolean {
+    if (isCompleted) return false
+    val date = LocalDate.parse(deadlineDate)
+    if (date.isBefore(LocalDate.now())) return true
+    return date == LocalDate.now() &&
+        deadlineTime?.let { LocalTime.parse(it).isBefore(LocalTime.now()) } == true
+}
+
+private fun formatDate(value: String): String =
+    LocalDate.parse(value).format(
+        DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).withLocale(Locale.getDefault())
+    )
+
+private fun formatTime(value: String): String =
+    LocalTime.parse(value).format(
+        DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT).withLocale(Locale.getDefault())
+    )
+
+private fun assignmentError(error: Throwable): String {
+    val message = error.message.orEmpty()
+    return when {
+        "assignments" in message && ("schema cache" in message || "PGRST205" in message) ->
+            "Assignments are temporarily unavailable. Please try again shortly."
+        "session" in message.lowercase() ->
+            "Your session expired. Please log in again."
+        "network" in message.lowercase() || "unable to resolve" in message.lowercase() ->
+            "We couldn’t reach Drift. Check your connection and try again."
+        else -> "We couldn’t save your assignments. Please try again."
+    }
+}

@@ -1,6 +1,5 @@
 package com.example.drift.data.auth
 
-import com.example.drift.BuildConfig
 import com.example.drift.data.remote.SupabaseProvider
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.OtpType
@@ -21,7 +20,6 @@ sealed interface DriftAuthState {
     data object Loading : DriftAuthState
     data object SignedOut : DriftAuthState
     data object Authenticated : DriftAuthState
-    data object Demo : DriftAuthState
     data object PasswordRecovery : DriftAuthState
 }
 
@@ -41,9 +39,6 @@ enum class GoogleSignInDestination {
 }
 
 object AuthRepository {
-    const val DEMO_EMAIL = "admin@drift.local"
-    const val DEMO_PASSWORD = "DriftAdmin123!"
-
     private val _authState = MutableStateFlow<DriftAuthState>(DriftAuthState.Loading)
     val authState = _authState.asStateFlow()
     private val _passwordRecoveryReady = MutableStateFlow(false)
@@ -54,8 +49,6 @@ object AuthRepository {
     private var pendingOAuthOrigin: OAuthOrigin? = null
 
     suspend fun initialize() {
-        if (_authState.value == DriftAuthState.Demo) return
-
         if (SupabaseProvider.configurationError != null) {
             _authState.value = DriftAuthState.SignedOut
             return
@@ -106,11 +99,6 @@ object AuthRepository {
     }
 
     suspend fun signOut() {
-        if (_authState.value == DriftAuthState.Demo) {
-            _authState.value = DriftAuthState.SignedOut
-            return
-        }
-
         try {
             SupabaseProvider.client.auth.signOut()
         } catch (_: Exception) {
@@ -140,14 +128,6 @@ object AuthRepository {
     }
 
     suspend fun signIn(email: String, password: String): Result<Unit> {
-        val isDemoLogin = BuildConfig.DEBUG &&
-                email.sanitizedEmail().equals(DEMO_EMAIL, ignoreCase = true) &&
-                password == DEMO_PASSWORD
-        if (isDemoLogin) {
-            _authState.value = DriftAuthState.Demo
-            return Result.success(Unit)
-        }
-
         return safeAuthRequest(
             fallbackMessage = "Incorrect email or password."
         ) {
@@ -265,7 +245,7 @@ object AuthRepository {
         val friendlyMessage = when {
             error is AuthRequestException -> error.message ?: fallbackMessage
             SupabaseProvider.configurationError != null ->
-                "Authentication is not configured correctly in this build."
+                "Authentication is temporarily unavailable. Please try again later."
             authCode == AuthErrorCode.EmailAddressInvalid ->
                 "That email address is invalid. Check it and try again."
             authCode == AuthErrorCode.InvalidCredentials || authCode == AuthErrorCode.UserNotFound ->
@@ -277,15 +257,15 @@ object AuthRepository {
             authCode == AuthErrorCode.EmailExists || authCode == AuthErrorCode.UserAlreadyExists ->
                 "An account already exists for this email. Try logging in instead."
             authCode == AuthErrorCode.EmailAddressNotAuthorized || "email_address_not_authorized" in rawMessage ->
-                "Supabase cannot email this address yet. Configure custom SMTP, or use the project owner's email while testing."
+                "We couldn't send an email to this address. Check it and try again."
             authCode == AuthErrorCode.SignupDisabled || authCode == AuthErrorCode.EmailProviderDisabled ->
-                "Email signup is disabled in Supabase. Enable the Email provider and try again."
+                "Account creation is temporarily unavailable. Please try again later."
             authCode == AuthErrorCode.OverEmailSendRateLimit || authCode == AuthErrorCode.OverRequestRateLimit ->
-                "Supabase's email limit was reached. Wait a few minutes, then try once more."
+                "Too many attempts. Please wait a few minutes and try again."
             authCode == AuthErrorCode.WeakPassword ->
                 "Use a stronger password with at least 8 characters."
             "error_sending_confirmation_email" in rawMessage || "confirmation email" in rawMessage ->
-                "Supabase couldn't send the verification email. Configure custom SMTP and try again."
+                "We couldn't send the verification email. Please try again shortly."
             "already registered" in rawMessage || "user already" in rawMessage ->
                 "An account already exists for this email. Try logging in instead."
             "rate limit" in rawMessage || "rate_limit" in rawMessage || "too many" in rawMessage ->

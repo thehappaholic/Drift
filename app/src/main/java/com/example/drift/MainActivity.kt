@@ -52,6 +52,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
@@ -114,6 +115,7 @@ class MainActivity : ComponentActivity() {
                     var signupVerificationRequired by remember { mutableStateOf(false) }
                     var onboardingDraft by remember { mutableStateOf(OnboardingDraft()) }
                     var profileName by remember { mutableStateOf("") }
+                    var profileLoadError by remember { mutableStateOf<String?>(null) }
                     val authState by AuthRepository.authState.collectAsState()
                     val passwordRecoveryReady by
                         AuthRepository.passwordRecoveryReady.collectAsState()
@@ -137,18 +139,13 @@ class MainActivity : ComponentActivity() {
                             DriftAuthState.PasswordRecovery -> {
                                 currentScreen = "reset_password"
                             }
-                            DriftAuthState.Authenticated,
-                            DriftAuthState.Demo -> {
+                            DriftAuthState.Authenticated -> {
                                 if (currentScreen in setOf(
                                         "auth_loading",
                                         "welcome"
                                     )
                                 ) {
-                                    currentScreen = if (authState == DriftAuthState.Demo) {
-                                        "dashboard"
-                                    } else {
-                                        "profile_loading"
-                                    }
+                                    currentScreen = "profile_loading"
                                 }
                             }
                             DriftAuthState.SignedOut -> {
@@ -181,6 +178,7 @@ class MainActivity : ComponentActivity() {
 
                     LaunchedEffect(currentScreen) {
                         if (currentScreen == "profile_loading") {
+                            profileLoadError = null
                             ProfileRepository.loadCurrentProfile()
                                 .onSuccess { profile ->
                                     profile?.let {
@@ -207,8 +205,9 @@ class MainActivity : ComponentActivity() {
                                         "onboarding_intro"
                                     }
                                 }
-                                .onFailure {
-                                    currentScreen = "onboarding_intro"
+                                .onFailure { error ->
+                                    profileLoadError = profileErrorMessage(error)
+                                    currentScreen = "profile_error"
                                 }
                         }
                     }
@@ -216,6 +215,16 @@ class MainActivity : ComponentActivity() {
                     when (currentScreen) {
                         "auth_loading" -> AuthLoadingScreen()
                         "profile_loading" -> ProfileLoadingScreen()
+                        "profile_error" -> ProfileLoadErrorScreen(
+                            message = profileLoadError
+                                ?: "We couldn’t load your profile. Please try again.",
+                            onRetry = { currentScreen = "profile_loading" },
+                            onLogOut = {
+                                appScope.launch {
+                                    AuthRepository.signOut()
+                                }
+                            }
+                        )
 
                         "reset_password" -> ResetPasswordScreen(
                             onUpdatePassword = AuthRepository::updateRecoveredPassword,
@@ -559,6 +568,46 @@ private fun ProfileLoadingScreen() {
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+    }
+}
+
+@Composable
+private fun ProfileLoadErrorScreen(
+    message: String,
+    onRetry: () -> Unit,
+    onLogOut: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 32.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = "We hit a small snag",
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.SemiBold,
+            textAlign = TextAlign.Center
+        )
+        Spacer(Modifier.height(12.dp))
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
+        )
+        Spacer(Modifier.height(24.dp))
+        Button(
+            onClick = onRetry,
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+            shape = RoundedCornerShape(10.dp)
+        ) {
+            Text("Try again")
+        }
+        TextButton(onClick = onLogOut) {
+            Text("Log out")
+        }
     }
 }
 
@@ -912,22 +961,7 @@ fun LoginScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
-        if (BuildConfig.DEBUG) {
-            Spacer(modifier = Modifier.height(12.dp))
-
-            TextButton(
-                onClick = {
-                    email = AuthRepository.DEMO_EMAIL
-                    password = AuthRepository.DEMO_PASSWORD
-                    loginError = null
-                    passwordResetMessage = null
-                }
-            ) {
-                Text("Use test account")
-            }
-        }
-
-        Spacer(modifier = Modifier.height(if (BuildConfig.DEBUG) 18.dp else 38.dp))
+        Spacer(modifier = Modifier.height(38.dp))
 
         Text(
             text = "Email",
@@ -1973,7 +2007,7 @@ fun AcademicInfoScreen(
                         ExposedDropdownMenuDefaults.TrailingIcon(expanded = dropdownExpanded)
                     },
                     modifier = Modifier
-                        .menuAnchor()
+                        .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
                         .fillMaxWidth(),
                     shape = RoundedCornerShape(10.dp)
                 )
@@ -2492,8 +2526,7 @@ fun OnboardingSummaryScreen(
                         onGetStarted()
                             .onSuccess { onSaved() }
                             .onFailure { error ->
-                                saveError = error.message
-                                    ?: "We couldn't save your profile. Please try again."
+                                saveError = profileErrorMessage(error)
                             }
                         isSaving = false
                     }
@@ -2526,6 +2559,20 @@ fun OnboardingSummaryScreen(
                 fontWeight = FontWeight.SemiBold
             )
         }
+    }
+}
+
+private fun profileErrorMessage(error: Throwable): String {
+    val message = error.message.orEmpty().lowercase()
+    return when {
+        "session" in message ->
+            "Your session expired. Please log in again."
+        "network" in message || "unable to resolve" in message ||
+            "failed to connect" in message ->
+            "We couldn’t reach Drift. Check your connection and try again."
+        "profiles" in message && ("schema cache" in message || "pgrst205" in message) ->
+            "Profile setup is temporarily unavailable. Please try again shortly."
+        else -> "We couldn’t access your profile. Please try again."
     }
 }
 
