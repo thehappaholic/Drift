@@ -9,6 +9,11 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 
 data class OnboardingDraft(
+    val ageRange: String = "",
+    val gender: String = "",
+    val role: String = "",
+    val otherRole: String = "",
+    val managing: Set<String> = emptySet(),
     val academicYear: String = "",
     val course: String = "",
     val studyStart: String = "7:00 PM",
@@ -24,6 +29,13 @@ data class UserProfile(
     val id: String,
     @SerialName("full_name")
     val fullName: String = "",
+    @SerialName("age_range")
+    val ageRange: String = "",
+    val gender: String = "",
+    val role: String = "",
+    @SerialName("other_role")
+    val otherRole: String = "",
+    val managing: List<String> = emptyList(),
     @SerialName("academic_year")
     val academicYear: String = "",
     val course: String = "",
@@ -74,6 +86,11 @@ object ProfileRepository {
             UserProfile(
                 id = user.id,
                 fullName = fullName,
+                ageRange = draft.ageRange.trim(),
+                gender = draft.gender.trim(),
+                role = draft.role.trim(),
+                otherRole = draft.otherRole.trim(),
+                managing = draft.managing.sorted(),
                 academicYear = draft.academicYear.trim(),
                 course = draft.course.trim(),
                 studyStart = draft.studyStart.trim(),

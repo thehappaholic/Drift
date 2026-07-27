@@ -148,6 +148,12 @@ object AuthRepository {
     ): Result<SignupOutcome> = safeAuthRequest(
         fallbackMessage = "We couldn't create your account. Check your details and try again."
     ) {
+        // A signup must never inherit a previously authenticated account.
+        // Otherwise that old session can make an unverified new signup look authenticated.
+        if (SupabaseProvider.client.auth.currentSessionOrNull() != null) {
+            SupabaseProvider.client.auth.clearSession()
+            _authState.value = DriftAuthState.SignedOut
+        }
         val user = SupabaseProvider.client.auth.signUpWith(Email) {
             this.email = email.sanitizedEmail()
             this.password = password
@@ -155,10 +161,12 @@ object AuthRepository {
                 put("full_name", fullName.trim())
             }
         }
-        if (user == null || SupabaseProvider.client.auth.currentSessionOrNull() != null) {
+        val newSession = SupabaseProvider.client.auth.currentSessionOrNull()
+        if (newSession != null && user != null && newSession.user?.id == user.id) {
             _authState.value = DriftAuthState.Authenticated
             SignupOutcome.Authenticated
         } else {
+            _authState.value = DriftAuthState.SignedOut
             SignupOutcome.VerificationRequired
         }
     }

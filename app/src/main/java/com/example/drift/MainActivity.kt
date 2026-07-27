@@ -2,6 +2,7 @@ package com.example.drift
 
 import android.os.Bundle
 import android.content.Intent
+import android.app.TimePickerDialog
 import android.util.Patterns
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -11,6 +12,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -27,6 +30,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -59,9 +63,12 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.FilterChip
 import androidx.compose.foundation.Image
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LocalRippleConfiguration
@@ -120,6 +127,8 @@ class MainActivity : ComponentActivity() {
                     var profileName by remember { mutableStateOf("") }
                     var profileEmail by remember { mutableStateOf("") }
                     var profileLoadError by remember { mutableStateOf<String?>(null) }
+                    var onboardingSaveError by remember { mutableStateOf<String?>(null) }
+                    var onboardingSaving by remember { mutableStateOf(false) }
                     val authState by AuthRepository.authState.collectAsState()
                     val passwordRecoveryReady by
                         AuthRepository.passwordRecoveryReady.collectAsState()
@@ -153,6 +162,10 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                             DriftAuthState.SignedOut -> {
+                                onboardingEditReturn = null
+                                onboardingDraft = OnboardingDraft()
+                                profileName = ""
+                                profileEmail = ""
                                 if (currentScreen == "auth_loading" ||
                                     currentScreen !in setOf(
                                         "welcome",
@@ -182,6 +195,8 @@ class MainActivity : ComponentActivity() {
 
                     LaunchedEffect(currentScreen) {
                         if (currentScreen == "profile_loading") {
+                            onboardingEditReturn = null
+                            onboardingDraft = OnboardingDraft()
                             profileLoadError = null
                             profileEmail = AuthRepository.currentEmail()
                             ProfileRepository.loadCurrentProfile()
@@ -189,6 +204,11 @@ class MainActivity : ComponentActivity() {
                                     profile?.let {
                                         profileName = it.fullName
                                         onboardingDraft = OnboardingDraft(
+                                            ageRange = it.ageRange,
+                                            gender = it.gender,
+                                            role = it.role,
+                                            otherRole = it.otherRole,
+                                            managing = it.managing.toSet(),
                                             academicYear = it.academicYear,
                                             course = it.course,
                                             studyStart = it.studyStart.ifBlank { "7:00 PM" },
@@ -264,6 +284,12 @@ class MainActivity : ComponentActivity() {
                                 AuthRepository.signInWithGoogle(OAuthOrigin.Signup)
                             },
                             onSignUpSuccess = { email, outcome ->
+                                onboardingEditReturn = null
+                                onboardingDraft = OnboardingDraft()
+                                profileName = ""
+                                profileEmail = email
+                                onboardingSaveError = null
+                                onboardingSaving = false
                                 pendingVerificationEmail = email
                                 signupVerificationRequired =
                                     outcome == SignupOutcome.VerificationRequired
@@ -279,7 +305,11 @@ class MainActivity : ComponentActivity() {
                             onBack = { currentScreen = "signup" },
                             email = pendingVerificationEmail,
                             onVerifyClick = AuthRepository::verifySignupEmail,
-                            onVerifySuccess = { currentScreen = "onboarding_intro" },
+                            onVerifySuccess = {
+                                onboardingEditReturn = null
+                                onboardingDraft = OnboardingDraft()
+                                currentScreen = "onboarding_intro"
+                            },
                             onResendClick = AuthRepository::resendSignupCode
                         )
 
@@ -288,82 +318,125 @@ class MainActivity : ComponentActivity() {
                                 currentScreen =
                                     if (signupVerificationRequired) "verify" else "signup"
                             },
-                            onSkip = {
-                                appScope.launch {
-                                    ProfileRepository.saveOnboarding(onboardingDraft)
-                                        .onSuccess { currentScreen = "dashboard" }
-                                }
-                            },
-                            onContinue = { currentScreen = "academic_info" }
+                            onContinue = { currentScreen = "about_you" }
                         )
 
-                        "academic_info" -> AcademicInfoScreen(
+                        "about_you" -> AboutYouScreen(
                             onBack = {
-                                val returnScreen = onboardingEditReturn
-                                if (returnScreen != null) {
-                                    onboardingEditReturn = null
-                                    currentScreen = returnScreen
-                                } else {
-                                    currentScreen = "onboarding_intro"
-                                }
+                                currentScreen = onboardingEditReturn ?: "onboarding_intro"
                             },
                             draft = onboardingDraft,
-                            onContinue = { academicYear, course ->
-                                onboardingDraft = onboardingDraft.copy(
-                                    academicYear = academicYear,
-                                    course = course
+                            isEditing = onboardingEditReturn != null,
+                            onContinue = { ageRange, gender ->
+                                val updatedDraft = onboardingDraft.copy(
+                                    ageRange = ageRange,
+                                    gender = gender
                                 )
-                                currentScreen = "study_schedule"
+                                onboardingDraft = updatedDraft
+                                if (onboardingEditReturn != null) {
+                                    appScope.launch {
+                                        ProfileRepository.saveOnboarding(updatedDraft)
+                                            .onSuccess {
+                                                currentScreen = onboardingEditReturn ?: "profile"
+                                                onboardingEditReturn = null
+                                            }
+                                    }
+                                } else currentScreen = "role"
+                            }
+                        )
+
+                        "role" -> RoleScreen(
+                            onBack = { currentScreen = onboardingEditReturn ?: "about_you" },
+                            draft = onboardingDraft,
+                            isEditing = onboardingEditReturn != null,
+                            onContinue = { role, otherRole ->
+                                val updatedDraft = onboardingDraft.copy(
+                                    role = role,
+                                    otherRole = otherRole
+                                )
+                                onboardingDraft = updatedDraft
+                                if (onboardingEditReturn != null) {
+                                    appScope.launch {
+                                        ProfileRepository.saveOnboarding(updatedDraft)
+                                            .onSuccess {
+                                                currentScreen = onboardingEditReturn ?: "profile"
+                                                onboardingEditReturn = null
+                                            }
+                                    }
+                                } else currentScreen = "managing"
+                            }
+                        )
+
+                        "managing" -> ManagingScreen(
+                            onBack = { currentScreen = onboardingEditReturn ?: "role" },
+                            draft = onboardingDraft,
+                            isEditing = onboardingEditReturn != null,
+                            onContinue = { managing ->
+                                val updatedDraft = onboardingDraft.copy(managing = managing)
+                                onboardingDraft = updatedDraft
+                                if (onboardingEditReturn != null) {
+                                    appScope.launch {
+                                        ProfileRepository.saveOnboarding(updatedDraft)
+                                            .onSuccess {
+                                                currentScreen = onboardingEditReturn ?: "profile"
+                                                onboardingEditReturn = null
+                                            }
+                                    }
+                                } else currentScreen = "study_schedule"
                             }
                         )
 
                         "study_schedule" -> StudyScheduleScreen(
-                            onBack = { currentScreen = "academic_info" },
+                            onBack = { currentScreen = onboardingEditReturn ?: "managing" },
                             draft = onboardingDraft,
+                            isEditing = onboardingEditReturn != null,
                             onContinue = { start, end, days ->
-                                onboardingDraft = onboardingDraft.copy(
+                                val updatedDraft = onboardingDraft.copy(
                                     studyStart = start,
                                     studyEnd = end,
                                     studyDays = days
                                 )
-                                currentScreen = "wind_down"
+                                onboardingDraft = updatedDraft
+                                if (onboardingEditReturn != null) {
+                                    appScope.launch {
+                                        ProfileRepository.saveOnboarding(updatedDraft)
+                                            .onSuccess {
+                                                currentScreen = onboardingEditReturn ?: "profile"
+                                                onboardingEditReturn = null
+                                            }
+                                    }
+                                } else currentScreen = "wind_down"
                             }
                         )
 
                         "wind_down" -> WindDownScreen(
-                            onBack = { currentScreen = "study_schedule" },
+                            onBack = { currentScreen = onboardingEditReturn ?: "study_schedule" },
                             draft = onboardingDraft,
+                            isEditing = onboardingEditReturn != null,
+                            isSaving = onboardingSaving,
+                            saveError = onboardingSaveError,
                             onContinue = { start, end, enabled ->
-                                onboardingDraft = onboardingDraft.copy(
+                                val updatedDraft = onboardingDraft.copy(
                                     windDownStart = start,
                                     windDownEnd = end,
                                     windDownEnabled = enabled
                                 )
-                                currentScreen = "onboarding_summary"
-                            }
-                        )
-
-                        "onboarding_summary" -> OnboardingSummaryScreen(
-                            onBack = { currentScreen = "wind_down" },
-                            draft = onboardingDraft,
-                            isEditing = onboardingEditReturn != null,
-                            onGetStarted = {
-                                ProfileRepository.saveOnboarding(onboardingDraft)
-                            },
-                            onSaved = {
-                                currentScreen = onboardingEditReturn ?: "dashboard"
-                                onboardingEditReturn = null
-                            },
-                            onEditAcademic = { currentScreen = "academic_info" },
-                            onEditSchedule = { currentScreen = "study_schedule" },
-                            onEditWindDown = { currentScreen = "wind_down" },
-                            onStudyDaysChange = { days ->
-                                onboardingDraft = onboardingDraft.copy(studyDays = days)
-                            },
-                            onWindDownEnabledChange = { enabled ->
-                                onboardingDraft = onboardingDraft.copy(
-                                    windDownEnabled = enabled
-                                )
+                                onboardingDraft = updatedDraft
+                                onboardingSaveError = null
+                                onboardingSaving = true
+                                appScope.launch {
+                                    ProfileRepository.saveOnboarding(updatedDraft)
+                                        .onSuccess {
+                                            onboardingSaving = false
+                                            val returnScreen = onboardingEditReturn
+                                            onboardingEditReturn = null
+                                            currentScreen = returnScreen ?: "profile_loading"
+                                        }
+                                        .onFailure { error ->
+                                            onboardingSaving = false
+                                            onboardingSaveError = profileErrorMessage(error)
+                                        }
+                                }
                             }
                         )
 
@@ -501,7 +574,7 @@ class MainActivity : ComponentActivity() {
                             onBack = { currentScreen = "dashboard" },
                             onEditOnboarding = {
                                 onboardingEditReturn = "settings"
-                                currentScreen = "academic_info"
+                                currentScreen = "study_schedule"
                             },
                             darkMode = darkMode,
                             onDarkModeChange = {
@@ -512,9 +585,25 @@ class MainActivity : ComponentActivity() {
 
                         "profile" -> ProfileScreen(
                             onBack = { currentScreen = "dashboard" },
-                            onEditProfile = {
+                            onEditAbout = {
                                 onboardingEditReturn = "profile"
-                                currentScreen = "academic_info"
+                                currentScreen = "about_you"
+                            },
+                            onEditRole = {
+                                onboardingEditReturn = "profile"
+                                currentScreen = "role"
+                            },
+                            onEditManaging = {
+                                onboardingEditReturn = "profile"
+                                currentScreen = "managing"
+                            },
+                            onEditSchedule = {
+                                onboardingEditReturn = "profile"
+                                currentScreen = "study_schedule"
+                            },
+                            onEditWindDown = {
+                                onboardingEditReturn = "profile"
+                                currentScreen = "wind_down"
                             },
                             onLogout = {
                                 appScope.launch { AuthRepository.signOut() }
@@ -1798,21 +1887,57 @@ fun OnboardingProgressDots(activeStep: Int) {
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        repeat(4) { index ->
+        repeat(5) { index ->
+            val completed = index < activeStep
             Box(
                 modifier = Modifier
-                    .padding(horizontal = 4.dp)
-                    .height(8.dp)
-                    .width(if (index == activeStep) 24.dp else 8.dp)
+                    .size(30.dp)
                     .background(
-                        color = if (index == activeStep) {
+                        color = if (completed || index == activeStep) {
                             MaterialTheme.colorScheme.primary
                         } else {
-                            MaterialTheme.colorScheme.outlineVariant
+                            MaterialTheme.colorScheme.surface
                         },
-                        shape = RoundedCornerShape(50.dp)
+                        shape = CircleShape
                     )
-            )
+                    .border(
+                        1.dp,
+                        if (completed || index == activeStep) {
+                            MaterialTheme.colorScheme.primary
+                        } else MaterialTheme.colorScheme.outline,
+                        CircleShape
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                if (completed) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_completed_check),
+                        contentDescription = "Completed",
+                        tint = Color.Unspecified,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    Text(
+                        text = "${index + 1}",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = if (index == activeStep) {
+                            MaterialTheme.colorScheme.onPrimary
+                        } else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            if (index < 4) {
+                Box(
+                    modifier = Modifier
+                        .width(22.dp)
+                        .height(2.dp)
+                        .background(
+                            if (index < activeStep) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.outlineVariant
+                        )
+                )
+            }
         }
     }
 }
@@ -1845,7 +1970,8 @@ fun DriftPrimaryButton(
 @Composable
 private fun OnboardingStepButtons(
     onPrevious: () -> Unit,
-    onNext: () -> Unit
+    onNext: () -> Unit,
+    nextText: String = "Next"
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -1872,7 +1998,7 @@ private fun OnboardingStepButtons(
                 contentColor = MaterialTheme.colorScheme.onPrimary
             )
         ) {
-            Text("Next", fontWeight = FontWeight.SemiBold)
+            Text(nextText, fontWeight = FontWeight.SemiBold)
         }
     }
 }
@@ -1880,7 +2006,6 @@ private fun OnboardingStepButtons(
 @Composable
 fun OnboardingIntroScreen(
     onBack: () -> Unit,
-    onSkip: () -> Unit = {},
     onContinue: () -> Unit = {}
 ) {
     val scrollState = rememberScrollState()
@@ -1890,21 +2015,7 @@ fun OnboardingIntroScreen(
             .fillMaxSize()
             .padding(horizontal = 28.dp, vertical = 48.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            DriftBackButton(onClick = onBack)
-
-            Text(
-                text = "Skip",
-                fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.clickable { onSkip() }
-            )
-        }
+        DriftBackButton(onClick = onBack)
 
         Column(
             modifier = Modifier
@@ -1992,10 +2103,6 @@ fun OnboardingIntroScreen(
             Spacer(modifier = Modifier.height(32.dp))
         }
 
-        OnboardingProgressDots(activeStep = 0)
-
-        Spacer(modifier = Modifier.height(20.dp))
-
         DriftPrimaryButton(
             text = "Continue",
             onClick = onContinue
@@ -2005,18 +2112,18 @@ fun OnboardingIntroScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AcademicInfoScreen(
+fun AboutYouScreen(
     onBack: () -> Unit,
     draft: OnboardingDraft = OnboardingDraft(),
+    isEditing: Boolean = false,
     onContinue: (String, String) -> Unit = { _, _ -> }
 ) {
-    var academicYear by remember(draft.academicYear) {
-        mutableStateOf(draft.academicYear)
-    }
-    var course by remember(draft.course) { mutableStateOf(draft.course) }
-    var dropdownExpanded by remember { mutableStateOf(false) }
-    val yearOptions = listOf("Year 1", "Year 2", "Year 3", "Year 4", "Postgraduate")
-    val scrollState = rememberScrollState()
+    var ageRange by remember(draft.ageRange) { mutableStateOf(draft.ageRange) }
+    var gender by remember(draft.gender) { mutableStateOf(draft.gender) }
+    var ageExpanded by remember { mutableStateOf(false) }
+    var genderExpanded by remember { mutableStateOf(false) }
+    val ageOptions = listOf("Under 18", "18–24", "25–34", "35–44", "45+")
+    val genderOptions = listOf("Woman", "Man", "Non-binary", "Prefer not to say")
 
     Column(
         modifier = Modifier
@@ -2024,113 +2131,351 @@ fun AcademicInfoScreen(
             .padding(horizontal = 28.dp, vertical = 48.dp)
     ) {
         DriftBackButton(onClick = onBack)
-
+        if (!isEditing) {
+            Spacer(Modifier.height(16.dp))
+            OnboardingProgressDots(activeStep = 0)
+        }
         Column(
             modifier = Modifier
                 .weight(1f)
-                .verticalScroll(scrollState)
+                .verticalScroll(rememberScrollState())
         ) {
             Spacer(modifier = Modifier.height(32.dp))
-
             Text(
-                text = "Academic Info",
+                text = "About You",
                 fontSize = 30.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary
             )
-
-            Spacer(modifier = Modifier.height(24.dp))
-
+            Spacer(modifier = Modifier.height(10.dp))
             Text(
-                text = "What's your academic level?",
-                fontSize = 18.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Text(
-                text = "This helps DRIFT tailor study recommendations and focus goals to your schedule.",
-                fontSize = 15.sp,
-                lineHeight = 22.sp,
+                text = "Optional — this helps us understand who Drift supports. You can skip it.",
+                style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-
             Spacer(modifier = Modifier.height(28.dp))
-
-            Text(
-                text = "Academic Year / Grade",
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
+            Text("Age range", fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(8.dp))
             ExposedDropdownMenuBox(
-                expanded = dropdownExpanded,
-                onExpandedChange = { dropdownExpanded = it }
+                expanded = ageExpanded,
+                onExpandedChange = { ageExpanded = it }
             ) {
                 OutlinedTextField(
-                    value = academicYear,
+                    value = ageRange,
                     onValueChange = {},
                     readOnly = true,
-                    placeholder = { Text("Select academic year") },
+                    placeholder = { Text("Select age range") },
                     trailingIcon = {
-                        ExposedDropdownMenuDefaults.TrailingIcon(expanded = dropdownExpanded)
+                        ExposedDropdownMenuDefaults.TrailingIcon(ageExpanded)
                     },
                     modifier = Modifier
                         .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
                         .fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp)
+                    shape = CircleShape
                 )
-
                 DropdownMenu(
-                    expanded = dropdownExpanded,
-                    onDismissRequest = { dropdownExpanded = false }
+                    expanded = ageExpanded,
+                    onDismissRequest = { ageExpanded = false }
                 ) {
-                    yearOptions.forEach { option ->
+                    ageOptions.forEach { option ->
                         DropdownMenuItem(
                             text = { Text(option) },
                             onClick = {
-                                academicYear = option
-                                dropdownExpanded = false
+                                ageRange = option
+                                ageExpanded = false
                             }
                         )
                     }
                 }
             }
-
-            Spacer(modifier = Modifier.height(22.dp))
-
-            Text(
-                text = "Course / Major",
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            OutlinedTextField(
-                value = course,
-                onValueChange = { course = it },
-                placeholder = { Text("e.g. BSc Computer Science") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(10.dp)
-            )
-
+            Spacer(modifier = Modifier.height(20.dp))
+            Text("Gender", fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(8.dp))
+            ExposedDropdownMenuBox(
+                expanded = genderExpanded,
+                onExpandedChange = { genderExpanded = it }
+            ) {
+                OutlinedTextField(
+                    value = gender,
+                    onValueChange = {},
+                    readOnly = true,
+                    placeholder = { Text("Select gender") },
+                    trailingIcon = {
+                        ExposedDropdownMenuDefaults.TrailingIcon(genderExpanded)
+                    },
+                    modifier = Modifier
+                        .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
+                        .fillMaxWidth(),
+                    shape = CircleShape
+                )
+                DropdownMenu(
+                    expanded = genderExpanded,
+                    onDismissRequest = { genderExpanded = false }
+                ) {
+                    genderOptions.forEach { option ->
+                        DropdownMenuItem(
+                            text = { Text(option) },
+                            onClick = {
+                                gender = option
+                                genderExpanded = false
+                            }
+                        )
+                    }
+                }
+            }
             Spacer(modifier = Modifier.height(32.dp))
         }
+        if (isEditing) {
+            DriftPrimaryButton("Save Changes", { onContinue(ageRange, gender) })
+        } else {
+            OutlinedButton(
+                onClick = { onContinue("", "") },
+                modifier = Modifier.fillMaxWidth().height(48.dp),
+                shape = CircleShape
+            ) {
+                Text("Skip for now", fontWeight = FontWeight.SemiBold)
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            OnboardingStepButtons(
+                onPrevious = onBack,
+                onNext = { onContinue(ageRange, gender) }
+            )
+        }
+    }
+}
 
-        OnboardingProgressDots(activeStep = 1)
+@Composable
+fun RoleScreen(
+    onBack: () -> Unit,
+    draft: OnboardingDraft = OnboardingDraft(),
+    isEditing: Boolean = false,
+    onContinue: (String, String) -> Unit = { _, _ -> }
+) {
+    val roles = listOf(
+        "High school student", "Undergraduate", "Postgraduate",
+        "Working professional", "Job seeker", "Other"
+    )
+    var role by remember(draft.role) { mutableStateOf(draft.role) }
+    var otherRole by remember(draft.otherRole) { mutableStateOf(draft.otherRole) }
+    var validationAttempted by remember { mutableStateOf(false) }
+    Column(
+        Modifier.fillMaxSize().padding(horizontal = 28.dp, vertical = 48.dp)
+    ) {
+        DriftBackButton(onClick = onBack)
+        if (!isEditing) {
+            Spacer(Modifier.height(16.dp))
+            OnboardingProgressDots(activeStep = 1)
+        }
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+            Spacer(Modifier.height(32.dp))
+            Text(
+                "What describes you?",
+                fontSize = 30.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Spacer(Modifier.height(10.dp))
+            Text(
+                "Choose the option that fits you best right now.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(22.dp))
+            roles.forEach { option ->
+                SelectionRow(option, role == option) { role = option }
+            }
+            if (role == "Other") {
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = otherRole,
+                    onValueChange = { otherRole = it },
+                    label = { Text("Describe your role") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = CircleShape
+                )
+            }
+        }
+        if (validationAttempted && role.isBlank()) {
+            Text(
+                "Select one option to continue",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+                textAlign = TextAlign.Center
+            )
+        } else if (validationAttempted && role == "Other" && otherRole.isBlank()) {
+            Text(
+                "Describe your role to continue",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+                textAlign = TextAlign.Center
+            )
+        }
+        Spacer(Modifier.height(20.dp))
+        if (isEditing) {
+            DriftPrimaryButton("Save Changes", {
+                validationAttempted = true
+                if (role.isNotBlank() && (role != "Other" || otherRole.isNotBlank())) {
+                    onContinue(role, if (role == "Other") otherRole else "")
+                }
+            })
+        } else {
+            OnboardingStepButtons(
+                onPrevious = onBack,
+                onNext = {
+                    validationAttempted = true
+                    if (role.isNotBlank() && (role != "Other" || otherRole.isNotBlank())) {
+                        onContinue(role, if (role == "Other") otherRole else "")
+                    }
+                }
+            )
+        }
+    }
+}
 
-        Spacer(modifier = Modifier.height(20.dp))
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun ManagingScreen(
+    onBack: () -> Unit,
+    draft: OnboardingDraft = OnboardingDraft(),
+    isEditing: Boolean = false,
+    onContinue: (Set<String>) -> Unit = {}
+) {
+    val options = listOf(
+        "Studies", "Exams", "Assignments", "Work projects",
+        "Meetings", "Interview preparation", "Courses", "Personal responsibilities"
+    )
+    var selected by remember(draft.managing) { mutableStateOf(draft.managing) }
+    var validationAttempted by remember { mutableStateOf(false) }
+    Column(
+        Modifier.fillMaxSize().padding(horizontal = 28.dp, vertical = 48.dp)
+    ) {
+        DriftBackButton(onClick = onBack)
+        if (!isEditing) {
+            Spacer(Modifier.height(16.dp))
+            OnboardingProgressDots(activeStep = 2)
+        }
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+            Spacer(Modifier.height(32.dp))
+            Text(
+                "What are you managing?",
+                fontSize = 30.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Spacer(Modifier.height(10.dp))
+            Text(
+                "Select everything you want Drift to help you balance.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(22.dp))
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                options.forEach { option ->
+                    FilterChip(
+                        selected = option in selected,
+                        onClick = {
+                            selected = if (option in selected) selected - option
+                            else selected + option
+                        },
+                        label = { Text(option) },
+                        shape = CircleShape
+                    )
+                }
+            }
+        }
+        if (validationAttempted && selected.isEmpty()) {
+            Text(
+                "Select at least one item to continue",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+                textAlign = TextAlign.Center
+            )
+        }
+        Spacer(Modifier.height(20.dp))
+        if (isEditing) {
+            DriftPrimaryButton("Save Changes", {
+                validationAttempted = true
+                if (selected.isNotEmpty()) onContinue(selected)
+            })
+        } else {
+            OnboardingStepButtons(
+                onPrevious = onBack,
+                onNext = {
+                    validationAttempted = true
+                    if (selected.isNotEmpty()) onContinue(selected)
+                }
+            )
+        }
+    }
+}
 
-        OnboardingStepButtons(
-            onPrevious = onBack,
-            onNext = { onContinue(academicYear, course) }
-        )
+@Composable
+private fun SelectionRow(label: String, selected: Boolean, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        RadioButton(selected = selected, onClick = onClick)
+        Text(label, modifier = Modifier.padding(start = 8.dp))
+    }
+}
+
+@Composable
+private fun TimePickerButton(
+    value: String,
+    onValueChange: (String) -> Unit,
+    enabled: Boolean = true
+) {
+    val context = LocalContext.current
+    OutlinedButton(
+        onClick = {
+            val match = Regex("""(\d{1,2}):(\d{2})\s*(AM|PM)""")
+                .find(value.uppercase())
+            val displayHour = match?.groupValues?.get(1)?.toIntOrNull() ?: 7
+            val minute = match?.groupValues?.get(2)?.toIntOrNull() ?: 0
+            val period = match?.groupValues?.get(3) ?: "PM"
+            val hour24 = when {
+                period == "AM" && displayHour == 12 -> 0
+                period == "PM" && displayHour != 12 -> displayHour + 12
+                else -> displayHour
+            }
+            TimePickerDialog(
+                context,
+                { _, selectedHour, selectedMinute ->
+                    val selectedPeriod = if (selectedHour >= 12) "PM" else "AM"
+                    val selectedDisplayHour = when (val hour = selectedHour % 12) {
+                        0 -> 12
+                        else -> hour
+                    }
+                    onValueChange(
+                        "$selectedDisplayHour:${selectedMinute.toString().padStart(2, '0')} $selectedPeriod"
+                    )
+                },
+                hour24,
+                minute,
+                false
+            ).show()
+        },
+        enabled = enabled,
+        modifier = Modifier.fillMaxWidth().height(54.dp),
+        shape = CircleShape
+    ) {
+        Text(value, fontWeight = FontWeight.SemiBold)
     }
 }
 
@@ -2138,6 +2483,7 @@ fun AcademicInfoScreen(
 fun StudyScheduleScreen(
     onBack: () -> Unit,
     draft: OnboardingDraft = OnboardingDraft(),
+    isEditing: Boolean = false,
     onContinue: (String, String, Set<String>) -> Unit = { _, _, _ -> }
 ) {
     var startTime by remember(draft.studyStart) {
@@ -2156,6 +2502,10 @@ fun StudyScheduleScreen(
             .padding(horizontal = 28.dp, vertical = 48.dp)
     ) {
         DriftBackButton(onClick = onBack)
+        if (!isEditing) {
+            Spacer(Modifier.height(16.dp))
+            OnboardingProgressDots(activeStep = 3)
+        }
 
         Column(
             modifier = Modifier
@@ -2165,7 +2515,7 @@ fun StudyScheduleScreen(
             Spacer(modifier = Modifier.height(32.dp))
 
             Text(
-                text = "Study Schedule",
+                text = "Work / Study Schedule",
                 fontSize = 30.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary
@@ -2174,7 +2524,7 @@ fun StudyScheduleScreen(
             Spacer(modifier = Modifier.height(24.dp))
 
             Text(
-                text = "When do you usually study?",
+                text = "When do you usually focus?",
                 fontSize = 18.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface
@@ -2183,7 +2533,7 @@ fun StudyScheduleScreen(
             Spacer(modifier = Modifier.height(8.dp))
 
             Text(
-                text = "Set your typical study window so DRIFT can protect your focus hours.",
+                text = "Set your typical work or study window so Drift can support your focus time.",
                 fontSize = 15.sp,
                 lineHeight = 22.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -2199,12 +2549,9 @@ fun StudyScheduleScreen(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            OutlinedTextField(
+            TimePickerButton(
                 value = startTime,
-                onValueChange = { startTime = it },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(10.dp)
+                onValueChange = { startTime = it }
             )
 
             Spacer(modifier = Modifier.height(22.dp))
@@ -2217,18 +2564,15 @@ fun StudyScheduleScreen(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            OutlinedTextField(
+            TimePickerButton(
                 value = endTime,
-                onValueChange = { endTime = it },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(10.dp)
+                onValueChange = { endTime = it }
             )
 
             Spacer(modifier = Modifier.height(28.dp))
 
             Text(
-                text = "Study Days",
+                text = "Work / Study Days",
                 fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold
             )
@@ -2257,14 +2601,17 @@ fun StudyScheduleScreen(
             Spacer(modifier = Modifier.height(32.dp))
         }
 
-        OnboardingProgressDots(activeStep = 2)
-
-        Spacer(modifier = Modifier.height(20.dp))
-
-        OnboardingStepButtons(
-            onPrevious = onBack,
-            onNext = { onContinue(startTime, endTime, selectedDays) }
-        )
+        if (isEditing) {
+            DriftPrimaryButton(
+                "Save Changes",
+                { onContinue(startTime, endTime, selectedDays) }
+            )
+        } else {
+            OnboardingStepButtons(
+                onPrevious = onBack,
+                onNext = { onContinue(startTime, endTime, selectedDays) }
+            )
+        }
     }
 }
 
@@ -2303,6 +2650,9 @@ private fun StudyDayChip(
 fun WindDownScreen(
     onBack: () -> Unit,
     draft: OnboardingDraft = OnboardingDraft(),
+    isEditing: Boolean = false,
+    isSaving: Boolean = false,
+    saveError: String? = null,
     onContinue: (String, String, Boolean) -> Unit = { _, _, _ -> }
 ) {
     var windDownStart by remember(draft.windDownStart) {
@@ -2322,6 +2672,10 @@ fun WindDownScreen(
             .padding(horizontal = 28.dp, vertical = 48.dp)
     ) {
         DriftBackButton(onClick = onBack)
+        if (!isEditing) {
+            Spacer(Modifier.height(16.dp))
+            OnboardingProgressDots(activeStep = 4)
+        }
 
         Column(
             modifier = Modifier
@@ -2390,13 +2744,10 @@ fun WindDownScreen(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            OutlinedTextField(
+            TimePickerButton(
                 value = windDownStart,
                 onValueChange = { windDownStart = it },
-                enabled = windDownEnabled,
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(10.dp)
+                enabled = windDownEnabled
             )
 
             Spacer(modifier = Modifier.height(22.dp))
@@ -2409,13 +2760,10 @@ fun WindDownScreen(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            OutlinedTextField(
+            TimePickerButton(
                 value = windDownEnd,
                 onValueChange = { windDownEnd = it },
-                enabled = windDownEnabled,
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(10.dp)
+                enabled = windDownEnabled
             )
 
             Spacer(modifier = Modifier.height(28.dp))
@@ -2457,16 +2805,35 @@ fun WindDownScreen(
             Spacer(modifier = Modifier.height(32.dp))
         }
 
-        OnboardingProgressDots(activeStep = 3)
-
-        Spacer(modifier = Modifier.height(20.dp))
-
-        OnboardingStepButtons(
-            onPrevious = onBack,
-            onNext = {
-                onContinue(windDownStart, windDownEnd, windDownEnabled)
-            }
-        )
+        if (isEditing) {
+            DriftPrimaryButton(
+                if (isSaving) "Saving…" else "Save Changes",
+                {
+                    if (!isSaving) {
+                        onContinue(windDownStart, windDownEnd, windDownEnabled)
+                    }
+                }
+            )
+        } else {
+            OnboardingStepButtons(
+                onPrevious = onBack,
+                onNext = {
+                    if (!isSaving) {
+                        onContinue(windDownStart, windDownEnd, windDownEnabled)
+                    }
+                },
+                nextText = if (isSaving) "Saving…" else "Get Started"
+            )
+        }
+        saveError?.let { message ->
+            Text(
+                message,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+            )
+        }
     }
 }
 
@@ -2796,6 +3163,10 @@ private fun profileErrorMessage(error: Throwable): String {
     return when {
         "session" in message ->
             "Your session expired. Please log in again."
+        "42703" in message || "pgrst204" in message ||
+            "age_range" in message || "wind_down_enabled" in message ||
+            "column" in message && "does not exist" in message ->
+            "Profile setup needs the latest database update. Apply the pending Supabase migrations and try again."
         "network" in message || "unable to resolve" in message ||
             "failed to connect" in message ->
             "We couldn’t reach Drift. Check your connection and try again."
