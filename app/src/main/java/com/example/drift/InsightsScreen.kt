@@ -48,21 +48,65 @@ fun InsightsScreen(
                 .padding(horizontal = 20.dp)
         ) {
             Spacer(Modifier.height(24.dp))
-            Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-                Column {
-                    Text("Insights", style = MaterialTheme.typography.headlineSmall)
-                    Text("Your week, without the guilt.", style = MaterialTheme.typography.bodyMedium, color = Muted)
-                }
-                Row(Modifier.background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(9.dp)).padding(3.dp)) {
-                    listOf("7 days", "4 weeks").forEach { option ->
+            Row(
+                Modifier.fillMaxWidth(),
+                Arrangement.SpaceBetween,
+                Alignment.CenterVertically
+            ) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    DriftBackButton(onClick = onHomeClick)
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(start = 10.dp)
+                    ) {
                         Text(
-                            option,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (range == option) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.clip(RoundedCornerShape(7.dp)).clickable { range = option }
-                                .background(if (range == option) MaterialTheme.colorScheme.primary else Color.Transparent)
-                                .padding(horizontal = 9.dp, vertical = 7.dp)
+                            text = "Insights",
+                            style = MaterialTheme.typography.headlineSmall,
+                            color = MaterialTheme.colorScheme.primary
                         )
+                    }
+                }
+                Row(
+                    Modifier
+                        .width(140.dp)
+                        .padding(start = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf("7 days", "4 weeks").forEach { option ->
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(34.dp)
+                                .clip(CircleShape)
+                                .clickable { range = option }
+                                .background(
+                                    if (range == option) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.surfaceVariant,
+                                    CircleShape
+                                )
+                                .border(
+                                    1.dp,
+                                    if (range == option) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.outline,
+                                    CircleShape
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                option,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (range == option) {
+                                    MaterialTheme.colorScheme.onPrimary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                                maxLines = 1
+                            )
+                        }
                     }
                 }
             }
@@ -91,7 +135,9 @@ fun InsightsScreen(
 @Composable
 private fun WeeklyWinCard() {
     Column(
-        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.primaryContainer, InsightCard)
+        Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.primaryContainer, InsightCard)
             .border(1.dp, MaterialTheme.colorScheme.outline, InsightCard).padding(20.dp)
     ) {
         Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {

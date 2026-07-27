@@ -120,25 +120,12 @@ private fun HomeTopBar(onProfile: () -> Unit, onSettings: () -> Unit) {
 
 @Composable
 private fun ProfileIcon() {
-    val color = MaterialTheme.colorScheme.primary
-    Canvas(Modifier.size(23.dp)) {
-        val strokeWidth = 1.8.dp.toPx()
-        drawCircle(
-            color = color,
-            radius = size.minDimension * 0.19f,
-            center = androidx.compose.ui.geometry.Offset(size.width / 2f, size.height * 0.31f),
-            style = Stroke(strokeWidth)
-        )
-        drawArc(
-            color = color,
-            startAngle = 200f,
-            sweepAngle = 140f,
-            useCenter = false,
-            topLeft = androidx.compose.ui.geometry.Offset(size.width * 0.18f, size.height * 0.47f),
-            size = androidx.compose.ui.geometry.Size(size.width * 0.64f, size.height * 0.50f),
-            style = Stroke(strokeWidth)
-        )
-    }
+    Icon(
+        painter = painterResource(R.drawable.ic_profile),
+        contentDescription = "Open profile",
+        tint = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.size(24.dp)
+    )
 }
 
 @Composable

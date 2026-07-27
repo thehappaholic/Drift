@@ -28,6 +28,7 @@ import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -200,7 +201,8 @@ class MainActivity : ComponentActivity() {
                                             },
                                             windDownEnd = it.windDownEnd.ifBlank {
                                                 "06:30 AM"
-                                            }
+                                            },
+                                            windDownEnabled = it.windDownEnabled
                                         )
                                     }
                                     currentScreen = if (profile?.onboardingCompleted == true) {
@@ -331,10 +333,11 @@ class MainActivity : ComponentActivity() {
                         "wind_down" -> WindDownScreen(
                             onBack = { currentScreen = "study_schedule" },
                             draft = onboardingDraft,
-                            onContinue = { start, end ->
+                            onContinue = { start, end, enabled ->
                                 onboardingDraft = onboardingDraft.copy(
                                     windDownStart = start,
-                                    windDownEnd = end
+                                    windDownEnd = end,
+                                    windDownEnabled = enabled
                                 )
                                 currentScreen = "onboarding_summary"
                             }
@@ -351,7 +354,17 @@ class MainActivity : ComponentActivity() {
                                 currentScreen = onboardingEditReturn ?: "dashboard"
                                 onboardingEditReturn = null
                             },
-                            onEditSettings = { currentScreen = "academic_info" }
+                            onEditAcademic = { currentScreen = "academic_info" },
+                            onEditSchedule = { currentScreen = "study_schedule" },
+                            onEditWindDown = { currentScreen = "wind_down" },
+                            onStudyDaysChange = { days ->
+                                onboardingDraft = onboardingDraft.copy(studyDays = days)
+                            },
+                            onWindDownEnabledChange = { enabled ->
+                                onboardingDraft = onboardingDraft.copy(
+                                    windDownEnabled = enabled
+                                )
+                            }
                         )
 
                         "dashboard" -> DashboardScreen(
@@ -382,7 +395,7 @@ class MainActivity : ComponentActivity() {
                         )
 
                         "budget" -> UsageBudgetScreen(
-                            onBack = { currentScreen = "focus" },
+                            onBack = { currentScreen = "dashboard" },
                             onEditClick = { currentScreen = "edit_budget" },
                             onHomeClick = { currentScreen = "dashboard" },
                             onFocusClick = {
@@ -490,9 +503,6 @@ class MainActivity : ComponentActivity() {
                                 onboardingEditReturn = "settings"
                                 currentScreen = "academic_info"
                             },
-                            onLogout = {
-                                appScope.launch { AuthRepository.signOut() }
-                            },
                             darkMode = darkMode,
                             onDarkModeChange = {
                                 darkMode = it
@@ -502,10 +512,12 @@ class MainActivity : ComponentActivity() {
 
                         "profile" -> ProfileScreen(
                             onBack = { currentScreen = "dashboard" },
-                            onOpenSettings = { currentScreen = "settings" },
                             onEditProfile = {
                                 onboardingEditReturn = "profile"
                                 currentScreen = "academic_info"
+                            },
+                            onLogout = {
+                                appScope.launch { AuthRepository.signOut() }
                             },
                             name = profileName,
                             email = profileEmail,
@@ -647,7 +659,7 @@ private fun ProfileLoadErrorScreen(
         Button(
             onClick = onRetry,
             modifier = Modifier.fillMaxWidth().height(52.dp),
-            shape = RoundedCornerShape(10.dp)
+            shape = CircleShape
         ) {
             Text("Try again")
         }
@@ -679,10 +691,9 @@ private fun ResetPasswordScreen(
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 28.dp, vertical = 48.dp)
     ) {
-        Text(
-            text = "←",
-            fontSize = 30.sp,
-            modifier = Modifier.clickable(enabled = !isUpdating, onClick = onCancel)
+        DriftBackButton(
+            onClick = { if (!isUpdating) onCancel() },
+            contentDescription = "Cancel password update"
         )
 
         Spacer(modifier = Modifier.height(48.dp))
@@ -690,7 +701,8 @@ private fun ResetPasswordScreen(
         Text(
             text = "Create a new password",
             fontSize = 30.sp,
-            fontWeight = FontWeight.Bold
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary
         )
 
         Spacer(modifier = Modifier.height(10.dp))
@@ -807,7 +819,7 @@ private fun ResetPasswordScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp),
-            shape = RoundedCornerShape(10.dp),
+            shape = CircleShape,
             colors = ButtonDefaults.buttonColors(
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary
@@ -906,7 +918,7 @@ fun WelcomeScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp),
-            shape = RoundedCornerShape(10.dp),
+            shape = CircleShape,
             colors = ButtonDefaults.buttonColors(
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary
@@ -926,7 +938,7 @@ fun WelcomeScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp),
-            shape = RoundedCornerShape(10.dp)
+            shape = CircleShape
         ) {
             Text(
                 text = "Sign Up",
@@ -984,11 +996,7 @@ fun LoginScreen(
             .fillMaxSize()
             .padding(horizontal = 28.dp, vertical = 48.dp)
     ) {
-        Text(
-            text = "←",
-            fontSize = 30.sp,
-            modifier = Modifier.clickable { onBack() }
-        )
+        DriftBackButton(onClick = onBack)
 
         Spacer(modifier = Modifier.height(50.dp))
 
@@ -996,7 +1004,7 @@ fun LoginScreen(
             text = "Log In",
             fontSize = 30.sp,
             fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onBackground
+            color = MaterialTheme.colorScheme.primary
         )
 
         Spacer(modifier = Modifier.height(8.dp))
@@ -1119,7 +1127,7 @@ fun LoginScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp),
-            shape = RoundedCornerShape(10.dp),
+            shape = CircleShape,
             colors = ButtonDefaults.buttonColors(
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary
@@ -1209,7 +1217,7 @@ fun LoginScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(54.dp),
-            shape = RoundedCornerShape(10.dp)
+            shape = CircleShape
         ) {
             if (isLaunchingGoogle) {
                 CircularProgressIndicator(
@@ -1273,11 +1281,7 @@ fun SignupScreen(
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 28.dp, vertical = 48.dp)
     ) {
-        Text(
-            text = "←",
-            fontSize = 30.sp,
-            modifier = Modifier.clickable { onBack() }
-        )
+        DriftBackButton(onClick = onBack)
 
         Spacer(modifier = Modifier.height(50.dp))
 
@@ -1285,7 +1289,7 @@ fun SignupScreen(
             text = "Create Account",
             fontSize = 30.sp,
             fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onBackground
+            color = MaterialTheme.colorScheme.primary
         )
 
         Spacer(modifier = Modifier.height(8.dp))
@@ -1446,7 +1450,7 @@ fun SignupScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp),
-            shape = RoundedCornerShape(10.dp),
+            shape = CircleShape,
             colors = ButtonDefaults.buttonColors(
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary
@@ -1502,7 +1506,7 @@ fun SignupScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(54.dp),
-            shape = RoundedCornerShape(10.dp)
+            shape = CircleShape
         ) {
             if (isLaunchingGoogle) {
                 CircularProgressIndicator(
@@ -1573,11 +1577,7 @@ fun VerifyEmailScreen(
         Row(
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text(
-                text = "←",
-                fontSize = 30.sp,
-                modifier = Modifier.clickable { onBack() }
-            )
+            DriftBackButton(onClick = onBack)
         }
 
         Spacer(modifier = Modifier.height(40.dp))
@@ -1610,7 +1610,7 @@ fun VerifyEmailScreen(
             text = "Verify Your Email",
             fontSize = 30.sp,
             fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onBackground,
+            color = MaterialTheme.colorScheme.primary,
             textAlign = TextAlign.Center
         )
 
@@ -1722,7 +1722,7 @@ fun VerifyEmailScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp),
-            shape = RoundedCornerShape(10.dp),
+            shape = CircleShape,
             colors = ButtonDefaults.buttonColors(
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary
@@ -1828,7 +1828,7 @@ fun DriftPrimaryButton(
         modifier = modifier
             .fillMaxWidth()
             .height(56.dp),
-        shape = RoundedCornerShape(10.dp),
+        shape = CircleShape,
         colors = ButtonDefaults.buttonColors(
             containerColor = MaterialTheme.colorScheme.primary,
             contentColor = MaterialTheme.colorScheme.onPrimary
@@ -1839,6 +1839,41 @@ fun DriftPrimaryButton(
             fontSize = 17.sp,
             fontWeight = FontWeight.SemiBold
         )
+    }
+}
+
+@Composable
+private fun OnboardingStepButtons(
+    onPrevious: () -> Unit,
+    onNext: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        OutlinedButton(
+            onClick = onPrevious,
+            modifier = Modifier
+                .weight(1f)
+                .height(52.dp),
+            shape = CircleShape
+        ) {
+            Text("Previous", fontWeight = FontWeight.SemiBold)
+        }
+
+        Button(
+            onClick = onNext,
+            modifier = Modifier
+                .weight(1f)
+                .height(52.dp),
+            shape = CircleShape,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
+            )
+        ) {
+            Text("Next", fontWeight = FontWeight.SemiBold)
+        }
     }
 }
 
@@ -1860,11 +1895,7 @@ fun OnboardingIntroScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = "←",
-                fontSize = 30.sp,
-                modifier = Modifier.clickable { onBack() }
-            )
+            DriftBackButton(onClick = onBack)
 
             Text(
                 text = "Skip",
@@ -1911,7 +1942,7 @@ fun OnboardingIntroScreen(
                 text = "Let's Get Started",
                 fontSize = 30.sp,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground,
+                color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.fillMaxWidth(),
                 textAlign = TextAlign.Center
             )
@@ -1992,11 +2023,7 @@ fun AcademicInfoScreen(
             .fillMaxSize()
             .padding(horizontal = 28.dp, vertical = 48.dp)
     ) {
-        Text(
-            text = "←",
-            fontSize = 30.sp,
-            modifier = Modifier.clickable { onBack() }
-        )
+        DriftBackButton(onClick = onBack)
 
         Column(
             modifier = Modifier
@@ -2009,7 +2036,7 @@ fun AcademicInfoScreen(
                 text = "Academic Info",
                 fontSize = 30.sp,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground
+                color = MaterialTheme.colorScheme.primary
             )
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -2100,9 +2127,9 @@ fun AcademicInfoScreen(
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        DriftPrimaryButton(
-            text = "Continue",
-            onClick = { onContinue(academicYear, course) }
+        OnboardingStepButtons(
+            onPrevious = onBack,
+            onNext = { onContinue(academicYear, course) }
         )
     }
 }
@@ -2128,11 +2155,7 @@ fun StudyScheduleScreen(
             .fillMaxSize()
             .padding(horizontal = 28.dp, vertical = 48.dp)
     ) {
-        Text(
-            text = "←",
-            fontSize = 30.sp,
-            modifier = Modifier.clickable { onBack() }
-        )
+        DriftBackButton(onClick = onBack)
 
         Column(
             modifier = Modifier
@@ -2145,7 +2168,7 @@ fun StudyScheduleScreen(
                 text = "Study Schedule",
                 fontSize = 30.sp,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground
+                color = MaterialTheme.colorScheme.primary
             )
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -2214,9 +2237,9 @@ fun StudyScheduleScreen(
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                days.take(4).forEach { day ->
+                days.forEach { day ->
                     StudyDayChip(
                         day = day,
                         selected = day in selectedDays,
@@ -2226,30 +2249,7 @@ fun StudyScheduleScreen(
                             } else {
                                 selectedDays + day
                             }
-                        },
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                days.drop(4).forEach { day ->
-                    StudyDayChip(
-                        day = day,
-                        selected = day in selectedDays,
-                        onClick = {
-                            selectedDays = if (day in selectedDays) {
-                                selectedDays - day
-                            } else {
-                                selectedDays + day
-                            }
-                        },
-                        modifier = Modifier.weight(1f)
+                        }
                     )
                 }
             }
@@ -2261,9 +2261,9 @@ fun StudyScheduleScreen(
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        DriftPrimaryButton(
-            text = "Continue",
-            onClick = { onContinue(startTime, endTime, selectedDays) }
+        OnboardingStepButtons(
+            onPrevious = onBack,
+            onNext = { onContinue(startTime, endTime, selectedDays) }
         )
     }
 }
@@ -2277,21 +2277,21 @@ private fun StudyDayChip(
 ) {
     Box(
         modifier = modifier
-            .height(44.dp)
+            .size(40.dp)
             .clickable { onClick() }
             .background(
                 color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                shape = RoundedCornerShape(10.dp)
+                shape = CircleShape
             )
             .border(
                 width = 1.dp,
                 color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-                shape = RoundedCornerShape(10.dp)
+                shape = CircleShape
             ),
         contentAlignment = Alignment.Center
     ) {
         Text(
-            text = day,
+            text = day.first().toString(),
             fontSize = 13.sp,
             fontWeight = FontWeight.SemiBold,
             color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
@@ -2303,13 +2303,16 @@ private fun StudyDayChip(
 fun WindDownScreen(
     onBack: () -> Unit,
     draft: OnboardingDraft = OnboardingDraft(),
-    onContinue: (String, String) -> Unit = { _, _ -> }
+    onContinue: (String, String, Boolean) -> Unit = { _, _, _ -> }
 ) {
     var windDownStart by remember(draft.windDownStart) {
         mutableStateOf(draft.windDownStart)
     }
     var windDownEnd by remember(draft.windDownEnd) {
         mutableStateOf(draft.windDownEnd)
+    }
+    var windDownEnabled by remember(draft.windDownEnabled) {
+        mutableStateOf(draft.windDownEnabled)
     }
     val scrollState = rememberScrollState()
 
@@ -2318,11 +2321,7 @@ fun WindDownScreen(
             .fillMaxSize()
             .padding(horizontal = 28.dp, vertical = 48.dp)
     ) {
-        Text(
-            text = "←",
-            fontSize = 30.sp,
-            modifier = Modifier.clickable { onBack() }
-        )
+        DriftBackButton(onClick = onBack)
 
         Column(
             modifier = Modifier
@@ -2335,7 +2334,7 @@ fun WindDownScreen(
                 text = "Sleep & Wind-Down",
                 fontSize = 30.sp,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground
+                color = MaterialTheme.colorScheme.primary
             )
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -2358,6 +2357,31 @@ fun WindDownScreen(
 
             Spacer(modifier = Modifier.height(28.dp))
 
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Enable Wind-Down Mode",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = "Block distractions and receive reminders",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = windDownEnabled,
+                    onCheckedChange = { windDownEnabled = it }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
             Text(
                 text = "Wind-Down Start",
                 fontSize = 14.sp,
@@ -2369,6 +2393,7 @@ fun WindDownScreen(
             OutlinedTextField(
                 value = windDownStart,
                 onValueChange = { windDownStart = it },
+                enabled = windDownEnabled,
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(10.dp)
@@ -2387,6 +2412,7 @@ fun WindDownScreen(
             OutlinedTextField(
                 value = windDownEnd,
                 onValueChange = { windDownEnd = it },
+                enabled = windDownEnabled,
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(10.dp)
@@ -2408,11 +2434,16 @@ fun WindDownScreen(
                     )
                     .padding(18.dp)
             ) {
-                listOf(
-                    "Distracting apps will be blocked",
-                    "Only selected apps can be used",
-                    "Wind-down reminders"
-                ).forEach { item ->
+                val windDownDetails = if (windDownEnabled) {
+                    listOf(
+                        "Distracting apps will be blocked",
+                        "Only selected apps can be used",
+                        "Wind-down reminders"
+                    )
+                } else {
+                    listOf("Wind-down protections and reminders will remain off")
+                }
+                windDownDetails.forEach { item ->
                     Text(
                         text = "•  $item",
                         fontSize = 15.sp,
@@ -2430,9 +2461,11 @@ fun WindDownScreen(
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        DriftPrimaryButton(
-            text = "Continue",
-            onClick = { onContinue(windDownStart, windDownEnd) }
+        OnboardingStepButtons(
+            onPrevious = onBack,
+            onNext = {
+                onContinue(windDownStart, windDownEnd, windDownEnabled)
+            }
         )
     }
 }
@@ -2444,31 +2477,22 @@ fun OnboardingSummaryScreen(
     isEditing: Boolean = false,
     onGetStarted: suspend () -> Result<Unit> = { Result.success(Unit) },
     onSaved: () -> Unit = {},
-    onEditSettings: () -> Unit = {}
+    onEditAcademic: () -> Unit = {},
+    onEditSchedule: () -> Unit = {},
+    onEditWindDown: () -> Unit = {},
+    onStudyDaysChange: (Set<String>) -> Unit = {},
+    onWindDownEnabledChange: (Boolean) -> Unit = {}
 ) {
     val scrollState = rememberScrollState()
     val coroutineScope = rememberCoroutineScope()
     var isSaving by remember { mutableStateOf(false) }
     var saveError by remember { mutableStateOf<String?>(null) }
-    val summaryItems = listOf(
-        "Academic Year" to draft.academicYear.ifBlank { "Not specified" },
-        "Course" to draft.course.ifBlank { "Not specified" },
-        "Study Time" to "${draft.studyStart} - ${draft.studyEnd}",
-        "Study Days" to draft.studyDays.joinToString(", "),
-        "Sleep Hours" to "${draft.windDownStart} - ${draft.windDownEnd}",
-        "Wind-Down Mode" to "Enabled"
-    )
-
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(horizontal = 28.dp, vertical = 48.dp)
     ) {
-        Text(
-            text = "←",
-            fontSize = 30.sp,
-            modifier = Modifier.clickable { onBack() }
-        )
+        DriftBackButton(onClick = onBack)
 
         Column(
             modifier = Modifier
@@ -2482,82 +2506,87 @@ fun OnboardingSummaryScreen(
                 text = if (isEditing) "Review Changes" else "Almost Done!",
                 fontSize = 30.sp,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground,
+                color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.fillMaxWidth()
             )
-
-            Spacer(modifier = Modifier.height(32.dp))
-
-            Box(
-                modifier = Modifier
-                    .height(88.dp)
-                    .width(88.dp)
-                    .background(
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        shape = CircleShape
-                    )
-                    .border(
-                        width = 1.dp,
-                        color = MaterialTheme.colorScheme.outline,
-                        shape = CircleShape
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "✓",
-                    fontSize = 36.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
 
             Spacer(modifier = Modifier.height(24.dp))
 
             Text(
-                text = if (isEditing) "Ready to save" else "All Set!",
-                fontSize = 26.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground
+                text = "Tap a detail to edit it",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.fillMaxWidth()
             )
 
-            Spacer(modifier = Modifier.height(28.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .border(
                         width = 1.dp,
-                        color = MaterialTheme.colorScheme.outline,
-                        shape = RoundedCornerShape(10.dp)
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.24f),
+                        shape = RoundedCornerShape(20.dp)
                     )
                     .background(
-                        color = MaterialTheme.colorScheme.surfaceVariant,
-                        shape = RoundedCornerShape(10.dp)
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.52f),
+                        shape = RoundedCornerShape(20.dp)
                     )
-                    .padding(18.dp)
+                    .padding(20.dp)
             ) {
-                summaryItems.forEach { (label, value) ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 6.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = "$label:",
-                            fontSize = 14.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-
-                        Text(
-                            text = value,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            textAlign = TextAlign.End
-                        )
-                    }
-                }
+                ReviewDetailRow(
+                    badge = "A",
+                    label = "Academic year",
+                    value = draft.academicYear.ifBlank { "Not specified" },
+                    onClick = onEditAcademic
+                )
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                )
+                ReviewDetailRow(
+                    badge = "C",
+                    label = "Course",
+                    value = draft.course.ifBlank { "Not specified" },
+                    onClick = onEditAcademic
+                )
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                )
+                ReviewDetailRow(
+                    badge = "T",
+                    label = "Study time",
+                    value = "${draft.studyStart} – ${draft.studyEnd}",
+                    onClick = onEditSchedule
+                )
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                )
+                ReviewDaysRow(
+                    selectedDays = draft.studyDays,
+                    onDaysChange = onStudyDaysChange
+                )
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                )
+                ReviewDetailRow(
+                    badge = "S",
+                    label = "Sleep hours",
+                    value = if (draft.windDownEnabled) {
+                        "${draft.windDownStart} – ${draft.windDownEnd}"
+                    } else {
+                        "Not active"
+                    },
+                    onClick = onEditWindDown
+                )
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                )
+                ReviewToggleRow(
+                    label = "Wind-Down Mode",
+                    enabled = draft.windDownEnabled,
+                    onEnabledChange = onWindDownEnabledChange
+                )
             }
 
             Spacer(modifier = Modifier.height(32.dp))
@@ -2597,19 +2626,168 @@ fun OnboardingSummaryScreen(
             )
         }
 
-        TextButton(
-            onClick = onEditSettings,
-            enabled = !isSaving,
+    }
+}
+
+@Composable
+private fun ReviewDetailRow(
+    badge: String,
+    label: String,
+    value: String,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 4.dp)
+                .size(34.dp)
+                .background(
+                    MaterialTheme.colorScheme.surface.copy(alpha = 0.82f),
+                    CircleShape
+                )
+                .border(
+                    1.dp,
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.25f),
+                    CircleShape
+                ),
+            contentAlignment = Alignment.Center
         ) {
             Text(
-                text = "Edit Settings",
-                color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.SemiBold
+                text = badge,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
             )
         }
+
+        Spacer(modifier = Modifier.width(12.dp))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = value,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+        }
+
+        DriftNextIcon(
+            modifier = Modifier.size(18.dp),
+            contentDescription = "Edit $label"
+        )
+    }
+}
+
+@Composable
+private fun ReviewDaysRow(
+    selectedDays: Set<String>,
+    onDaysChange: (Set<String>) -> Unit
+) {
+    val days = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 12.dp)
+    ) {
+        Text(
+            text = "Study days",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            days.forEach { day ->
+                val selected = day in selectedDays
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clickable {
+                            onDaysChange(
+                                if (selected) selectedDays - day
+                                else selectedDays + day
+                            )
+                        }
+                        .background(
+                            if (selected) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.surface.copy(alpha = 0.72f)
+                            },
+                            CircleShape
+                        )
+                        .border(
+                            1.dp,
+                            if (selected) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.outline
+                            },
+                            CircleShape
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = day.first().toString(),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (selected) {
+                            MaterialTheme.colorScheme.onPrimary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReviewToggleRow(
+    label: String,
+    enabled: Boolean,
+    onEnabledChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 10.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = if (enabled) "Enabled" else "Disabled",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        Switch(
+            checked = enabled,
+            onCheckedChange = onEnabledChange
+        )
     }
 }
 

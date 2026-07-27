@@ -82,6 +82,7 @@ fun BreakTimerScreen(
                     text = "Take a Break",
                     fontSize = 21.sp,
                     fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(start = 18.dp)
                 )
             }
@@ -222,7 +223,7 @@ fun BreakTimerScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp),
-                shape = RoundedCornerShape(10.dp),
+                shape = CircleShape,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.primary,
                     contentColor = MaterialTheme.colorScheme.onPrimary

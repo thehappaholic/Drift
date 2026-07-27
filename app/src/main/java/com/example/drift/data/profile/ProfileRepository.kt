@@ -15,7 +15,8 @@ data class OnboardingDraft(
     val studyEnd: String = "10:00 PM",
     val studyDays: Set<String> = setOf("Mon", "Wed", "Fri"),
     val windDownStart: String = "10:30 PM",
-    val windDownEnd: String = "06:30 AM"
+    val windDownEnd: String = "06:30 AM",
+    val windDownEnabled: Boolean = true
 )
 
 @Serializable
@@ -36,6 +37,8 @@ data class UserProfile(
     val windDownStart: String = "",
     @SerialName("wind_down_end")
     val windDownEnd: String = "",
+    @SerialName("wind_down_enabled")
+    val windDownEnabled: Boolean = true,
     @SerialName("onboarding_completed")
     val onboardingCompleted: Boolean = false
 )
@@ -78,6 +81,7 @@ object ProfileRepository {
                 studyDays = draft.studyDays.sortedBy(::dayOrder),
                 windDownStart = draft.windDownStart.trim(),
                 windDownEnd = draft.windDownEnd.trim(),
+                windDownEnabled = draft.windDownEnabled,
                 onboardingCompleted = true
             )
         ) {

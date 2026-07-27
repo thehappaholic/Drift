@@ -15,7 +15,7 @@ fun DriftBackButton(
         Icon(
             painter = painterResource(R.drawable.ic_arrow_back),
             contentDescription = contentDescription,
-            tint = MaterialTheme.colorScheme.onBackground
+            tint = MaterialTheme.colorScheme.primary
         )
     }
 }

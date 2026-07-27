@@ -132,7 +132,7 @@ fun FocusTimerScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(52.dp),
-                        shape = RoundedCornerShape(10.dp),
+                        shape = CircleShape,
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.primary,
                             contentColor = MaterialTheme.colorScheme.onPrimary
@@ -189,6 +189,7 @@ fun FocusTimerScreen(
                     text = "Focus Timer",
                     fontSize = 21.sp,
                     fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier
                         .weight(1f)
                         .padding(start = 18.dp)
@@ -345,7 +346,7 @@ fun FocusTimerScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(52.dp),
-                        shape = RoundedCornerShape(10.dp),
+                        shape = CircleShape,
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.primary,
                             contentColor = MaterialTheme.colorScheme.onPrimary
@@ -667,8 +668,6 @@ private fun LogicalFocusHourglass(
     )
     val frameColor = DriftLilac
     val glassFill = MaterialTheme.colorScheme.surfaceVariant
-    val highlightColor = MaterialTheme.colorScheme.surface
-    val facetShadowColor = MaterialTheme.colorScheme.primary
     val sandBrush = Brush.linearGradient(
         colors = listOf(
             MaterialTheme.colorScheme.primary,
@@ -677,14 +676,14 @@ private fun LogicalFocusHourglass(
         )
     )
     val animation = rememberInfiniteTransition(label = "falling sand")
-    val streamPulse by animation.animateFloat(
-        initialValue = 0.58f,
+    val grainPhase by animation.animateFloat(
+        initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 520),
-            repeatMode = RepeatMode.Reverse
+            animation = tween(durationMillis = 900, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
         ),
-        label = "sand stream pulse"
+        label = "individual falling grains"
     )
 
     Canvas(modifier = modifier) {
@@ -752,74 +751,97 @@ private fun LogicalFocusHourglass(
                 // by sqrt(remaining) makes visible sand volume match remaining time.
                 val upperScale = sqrt(remaining)
                 val surfaceY = neckY - upperHeight * upperScale
+                val sandNeckHalfWidth = neckHalfWidth * 0.42f
+                val safeUpperHalfWidth = innerHalfWidth * 0.84f
                 val surfaceHalfWidth =
-                    neckHalfWidth + (innerHalfWidth - neckHalfWidth) * upperScale
+                    sandNeckHalfWidth +
+                        (safeUpperHalfWidth - sandNeckHalfWidth) * upperScale
+                val surfaceDip = size.height * 0.018f * upperScale
                 val upperSand = Path().apply {
                     moveTo(centerX - surfaceHalfWidth, surfaceY)
-                    quadraticTo(
-                        centerX,
-                        surfaceY + size.height * 0.035f * upperScale,
+                    cubicTo(
+                        centerX - surfaceHalfWidth * 0.45f,
+                        surfaceY + surfaceDip,
+                        centerX + surfaceHalfWidth * 0.45f,
+                        surfaceY + surfaceDip,
                         centerX + surfaceHalfWidth,
                         surfaceY
                     )
-                    lineTo(centerX + neckHalfWidth, neckY)
-                    lineTo(centerX - neckHalfWidth, neckY)
+                    cubicTo(
+                        centerX + surfaceHalfWidth * 0.74f,
+                        surfaceY + (neckY - surfaceY) * 0.42f,
+                        centerX + sandNeckHalfWidth,
+                        neckY - size.height * 0.025f,
+                        centerX + sandNeckHalfWidth,
+                        neckY
+                    )
+                    lineTo(centerX - sandNeckHalfWidth, neckY)
+                    cubicTo(
+                        centerX - sandNeckHalfWidth,
+                        neckY - size.height * 0.025f,
+                        centerX - surfaceHalfWidth * 0.74f,
+                        surfaceY + (neckY - surfaceY) * 0.42f,
+                        centerX - surfaceHalfWidth,
+                        surfaceY
+                    )
                     close()
                 }
                 drawPath(upperSand, sandBrush)
-
-                val upperFacet = Path().apply {
-                    moveTo(centerX - surfaceHalfWidth * 0.72f, surfaceY)
-                    lineTo(centerX - neckHalfWidth, neckY)
-                    lineTo(centerX - surfaceHalfWidth * 0.10f, surfaceY)
-                    close()
-                }
-                drawPath(upperFacet, highlightColor.copy(alpha = 0.16f))
             }
 
             val lowerScale = sqrt(transferred)
-            val pileTopY = innerBottomY - lowerHeight * lowerScale
-            val pileHalfWidth = innerHalfWidth * lowerScale
+            val moundHeight = lowerHeight * lowerScale * 0.88f
+            val pileTopY = innerBottomY - moundHeight
+            val pileHalfWidth = innerHalfWidth * 0.84f * lowerScale
 
             if (transferred > 0f) {
                 // Height and base both grow with sqrt(elapsed), so pile area grows
                 // linearly and reaches the neck exactly when the timer reaches zero.
                 val lowerSand = Path().apply {
                     moveTo(centerX - pileHalfWidth, innerBottomY)
-                    lineTo(centerX, pileTopY)
-                    lineTo(centerX + pileHalfWidth, innerBottomY)
+                    cubicTo(
+                        centerX - pileHalfWidth * 0.70f,
+                        innerBottomY - moundHeight * 0.18f,
+                        centerX - pileHalfWidth * 0.34f,
+                        pileTopY + moundHeight * 0.10f,
+                        centerX,
+                        pileTopY
+                    )
+                    cubicTo(
+                        centerX + pileHalfWidth * 0.34f,
+                        pileTopY + moundHeight * 0.10f,
+                        centerX + pileHalfWidth * 0.70f,
+                        innerBottomY - moundHeight * 0.18f,
+                        centerX + pileHalfWidth,
+                        innerBottomY
+                    )
                     close()
                 }
                 drawPath(lowerSand, sandBrush)
-
-                val leftFacet = Path().apply {
-                    moveTo(centerX - pileHalfWidth, innerBottomY)
-                    lineTo(centerX, pileTopY)
-                    lineTo(centerX - pileHalfWidth * 0.18f, innerBottomY)
-                    close()
-                }
-                val rightFacet = Path().apply {
-                    moveTo(centerX, pileTopY)
-                    lineTo(centerX + pileHalfWidth, innerBottomY)
-                    lineTo(centerX + pileHalfWidth * 0.34f, innerBottomY)
-                    close()
-                }
-                drawPath(leftFacet, highlightColor.copy(alpha = 0.18f))
-                drawPath(
-                    rightFacet,
-                    facetShadowColor.copy(alpha = 0.16f)
-                )
             }
 
-            if (isRunning) {
-                drawLine(
-                    brush = sandBrush,
-                    start = Offset(centerX, neckY),
-                    end = Offset(centerX, pileTopY),
-                    alpha = streamPulse,
-                    strokeWidth = size.width * 0.020f,
-                    cap = StrokeCap.Round
-                )
+            if (isRunning && remaining > 0f) {
+                val streamEndY = (pileTopY - size.height * 0.012f)
+                    .coerceAtLeast(neckY + size.height * 0.018f)
+                val fallDistance = streamEndY - neckY
+                val grainOffsets =
+                    listOf(0f, -0.010f, 0.007f, -0.005f, 0.011f, -0.008f)
+
+                grainOffsets.forEachIndexed { index, horizontalOffset ->
+                    val position =
+                        (grainPhase + index.toFloat() / grainOffsets.size) % 1f
+                    val grainRadius = size.width *
+                        if (index % 3 == 0) 0.0065f else 0.0052f
+                    drawCircle(
+                        color = DriftLilac,
+                        radius = grainRadius,
+                        center = Offset(
+                            centerX + size.width * horizontalOffset,
+                            neckY + fallDistance * position
+                        ),
+                        alpha = 0.58f + (index % 3) * 0.12f
+                    )
+                }
             }
         }
 

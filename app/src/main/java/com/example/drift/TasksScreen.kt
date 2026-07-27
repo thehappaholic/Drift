@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -39,6 +40,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -115,22 +117,45 @@ fun TasksScreen(
         ) {
             Spacer(Modifier.height(28.dp))
 
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
             ) {
-                DriftBackButton(onClick = onHomeClick)
-                Text("Assignments", fontSize = 21.sp, fontWeight = FontWeight.SemiBold)
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .align(Alignment.CenterStart),
+                    contentAlignment = Alignment.Center
+                ) {
+                    DriftBackButton(onClick = onHomeClick)
+                }
+
                 Text(
-                    "+",
-                    fontSize = 30.sp,
-                    fontWeight = FontWeight.Light,
-                    modifier = Modifier.clickable {
+                    text = "To-do",
+                    fontSize = 21.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.align(Alignment.Center)
+                )
+
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .align(Alignment.CenterEnd)
+                        .clickable {
                         editorAssignment = null
                         showEditor = true
-                    }
-                )
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "+",
+                        fontSize = 30.sp,
+                        fontWeight = FontWeight.Light,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
             }
 
             Spacer(Modifier.height(24.dp))
@@ -279,20 +304,33 @@ private fun AssignmentTabs(selected: String, onSelect: (String) -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
-            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(10.dp))
-            .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(10.dp))
-            .padding(4.dp)
+            .padding(vertical = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         listOf("Upcoming", "Completed", "All").forEach { tab ->
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .background(
-                        if (selected == tab) MaterialTheme.colorScheme.primary else Color.Transparent,
-                        RoundedCornerShape(7.dp)
-                    )
+                    .height(42.dp)
+                    .clip(CircleShape)
                     .clickable { onSelect(tab) }
-                    .padding(vertical = 10.dp),
+                    .background(
+                        if (selected == tab) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.surfaceVariant
+                        },
+                        CircleShape
+                    )
+                    .border(
+                        1.dp,
+                        if (selected == tab) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.outline
+                        },
+                        CircleShape
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
@@ -397,11 +435,13 @@ private fun EmptyAssignments(selectedTab: String, onAdd: () -> Unit) {
     ) {
         Text(
             when (selectedTab) {
-                "Completed" -> "Completed assignments will appear here."
+                "Completed" -> "No tasks completed yet"
                 "All" -> "No assignments yet."
                 else -> "Nothing due right now."
             },
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth()
         )
         if (selectedTab != "Completed") {
             Spacer(Modifier.height(12.dp))
@@ -502,7 +542,7 @@ private fun AssignmentEditorDialog(
                         }.show()
                     },
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp)
+                    shape = CircleShape
                 ) {
                     Text(
                         deadlineDate.takeIf(String::isNotBlank)
@@ -530,7 +570,7 @@ private fun AssignmentEditorDialog(
                         ).show()
                     },
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp)
+                    shape = CircleShape
                 ) {
                     Text(
                         deadlineTime.takeIf(String::isNotBlank)

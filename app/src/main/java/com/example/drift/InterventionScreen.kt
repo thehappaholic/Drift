@@ -57,6 +57,7 @@ fun InterventionScreen(
                 Text(
                     text = "Check-in",
                     style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier
                         .weight(1f)
                         .padding(start = 18.dp)
@@ -134,7 +135,7 @@ fun InterventionScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(54.dp),
-                    shape = RoundedCornerShape(10.dp),
+                    shape = CircleShape,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primary,
                         contentColor = MaterialTheme.colorScheme.onPrimary

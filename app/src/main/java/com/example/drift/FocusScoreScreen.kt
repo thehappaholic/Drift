@@ -62,6 +62,7 @@ fun FocusScoreScreen(
                 Text(
                     text = "Focus Score",
                     style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(start = 18.dp)
                 )
             }

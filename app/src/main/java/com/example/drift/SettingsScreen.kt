@@ -41,7 +41,6 @@ import androidx.compose.ui.unit.sp
 fun SettingsScreen(
     onBack: () -> Unit,
     onEditOnboarding: () -> Unit,
-    onLogout: () -> Unit,
     darkMode: Boolean = false,
     onDarkModeChange: (Boolean) -> Unit = {}
 ) {
@@ -50,24 +49,7 @@ fun SettingsScreen(
     var appBlocking by remember { mutableStateOf(true) }
 
     Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
-        bottomBar = {
-            Button(
-                onClick = onLogout,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .navigationBarsPadding()
-                    .padding(horizontal = 20.dp, vertical = 10.dp)
-                    .height(52.dp),
-                shape = RoundedCornerShape(10.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary
-                )
-            ) {
-                Text("Log Out", fontWeight = FontWeight.SemiBold)
-            }
-        }
+        containerColor = MaterialTheme.colorScheme.background
     ) { innerPadding ->
     Column(
         modifier = Modifier
@@ -88,6 +70,7 @@ fun SettingsScreen(
                 text = "Settings",
                 fontSize = 21.sp,
                 fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(start = 18.dp)
             )
         }

@@ -69,6 +69,7 @@ fun SessionCompleteScreen(
                     text = "Session Complete",
                     fontSize = 21.sp,
                     fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier
                         .weight(1f)
                         .padding(start = 18.dp)
@@ -191,7 +192,7 @@ fun SessionCompleteScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(54.dp),
-                shape = RoundedCornerShape(10.dp),
+                shape = CircleShape,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.primary,
                     contentColor = MaterialTheme.colorScheme.onPrimary
