@@ -93,6 +93,9 @@ object AuthRepository {
         pendingOAuthOrigin = null
     }
 
+    fun currentEmail(): String =
+        SupabaseProvider.client.auth.currentUserOrNull()?.email.orEmpty()
+
     fun markPasswordRecoveryReady() {
         _passwordRecoveryReady.value = true
         _authState.value = DriftAuthState.PasswordRecovery

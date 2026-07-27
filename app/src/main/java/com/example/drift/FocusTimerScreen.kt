@@ -1,5 +1,6 @@
 package com.example.drift
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
@@ -19,6 +20,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -27,6 +29,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.MaterialTheme
@@ -46,18 +50,28 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.LaunchedEffect
 import com.example.drift.ui.theme.DriftLilac
+import com.example.drift.data.assignment.Assignment
+import com.example.drift.data.assignment.AssignmentRepository
 import kotlinx.coroutines.delay
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.LocalTime
+import java.time.temporal.ChronoUnit
 import kotlin.math.sqrt
 
 @Composable
 fun FocusTimerScreen(
     onBack: () -> Unit,
+    sessionStarted: Boolean,
+    onStartSession: () -> Unit,
     remainingSeconds: Int,
     onRemainingSecondsChange: (Int) -> Unit,
     onTakeBreak: (Int) -> Unit,
@@ -66,15 +80,31 @@ fun FocusTimerScreen(
     val sessionLengthSeconds = 40 * 60
     var paused by remember { mutableStateOf(false) }
     var showEarlyBreakMessage by remember { mutableStateOf(false) }
-    LaunchedEffect(paused, remainingSeconds) {
-        if (!paused && remainingSeconds > 0) {
+    var showEndConfirmation by remember { mutableStateOf(false) }
+    var showProtectionInfo by remember { mutableStateOf(false) }
+    var sessionGoal by remember { mutableStateOf<Assignment?>(null) }
+    val timerPaused = !sessionStarted || paused || showEndConfirmation
+
+    BackHandler {
+        if (sessionStarted) showEndConfirmation = true else onBack()
+    }
+
+    LaunchedEffect(Unit) {
+        AssignmentRepository.loadAssignments()
+            .onSuccess { assignments ->
+                sessionGoal = assignments.firstOrNull { !it.isCompleted }
+            }
+    }
+
+    LaunchedEffect(timerPaused, remainingSeconds) {
+        if (!timerPaused && remainingSeconds > 0) {
             delay(1000)
             onRemainingSecondsChange(remainingSeconds - 1)
         }
     }
 
     LaunchedEffect(remainingSeconds) {
-        if (remainingSeconds == 0) onSessionComplete()
+        if (sessionStarted && remainingSeconds == 0) onSessionComplete()
     }
 
     val minutes = remainingSeconds / 60
@@ -82,7 +112,54 @@ fun FocusTimerScreen(
     val formattedTime = "%02d:%02d".format(minutes, seconds)
 
     Scaffold(
-        containerColor = MaterialTheme.colorScheme.background
+        containerColor = MaterialTheme.colorScheme.background,
+        bottomBar = {
+            if (sessionStarted) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.background)
+                        .navigationBarsPadding()
+                        .padding(horizontal = 20.dp, vertical = 10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Button(
+                        onClick = {
+                            val elapsed = sessionLengthSeconds - remainingSeconds
+                            if (elapsed >= 10 * 60) onTakeBreak(elapsed)
+                            else showEarlyBreakMessage = true
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
+                        )
+                    ) {
+                        Text(
+                            text = "Take a Break",
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text(
+                        text = when {
+                            remainingSeconds == 0 -> "Focus session complete!"
+                            paused -> "Session paused"
+                            else -> "Stay focused. You've got this!"
+                        },
+                        fontSize = 14.sp,
+                        fontStyle = FontStyle.Italic,
+                        textAlign = TextAlign.Center,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
     ) { innerPadding ->
         Column(
             modifier = Modifier
@@ -97,10 +174,15 @@ fun FocusTimerScreen(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "<",
-                    fontSize = 28.sp,
-                    modifier = Modifier.clickable { onBack() }
+                DriftBackButton(
+                    onClick = {
+                        if (sessionStarted) showEndConfirmation = true else onBack()
+                    },
+                    contentDescription = if (sessionStarted) {
+                        "End focus session and go back"
+                    } else {
+                        "Go back"
+                    }
                 )
 
                 Text(
@@ -114,87 +196,39 @@ fun FocusTimerScreen(
 
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
-            Text(
-                text = "Deep Focus",
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier
-                    .align(Alignment.CenterHorizontally)
-                    .border(
-                        1.dp,
-                        MaterialTheme.colorScheme.outline,
-                        RoundedCornerShape(20.dp)
-                    )
-                    .padding(horizontal = 24.dp, vertical = 10.dp)
-            )
-
-            Spacer(modifier = Modifier.height(26.dp))
-
-            Column(
-                modifier = Modifier
-                    .align(Alignment.CenterHorizontally),
-                horizontalAlignment = Alignment.CenterHorizontally
+            Row(
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                LogicalFocusHourglass(
-                    progress = remainingSeconds.toFloat() / sessionLengthSeconds.toFloat(),
-                    isRunning = !paused && remainingSeconds > 0,
-                    modifier = Modifier.size(width = 190.dp, height = 210.dp)
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
                 Text(
-                    text = "Focus Time",
-                    fontSize = 14.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    text = "Deep Focus",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold
                 )
 
-                Spacer(modifier = Modifier.height(3.dp))
-
-                Text(
-                    text = formattedTime,
-                    fontSize = 39.sp,
-                    fontWeight = FontWeight.Bold
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clickable { paused = !paused }
-                        .border(
-                            2.dp,
-                            MaterialTheme.colorScheme.primary,
-                            CircleShape
-                        ),
-                    contentAlignment = Alignment.Center
+                IconButton(
+                    onClick = { showProtectionInfo = true },
+                    modifier = Modifier.size(36.dp)
                 ) {
                     Text(
-                        text = if (paused) ">" else "II",
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.Bold
+                        text = "!",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .size(22.dp)
+                            .border(
+                                1.dp,
+                                MaterialTheme.colorScheme.primary,
+                                CircleShape
+                            )
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(22.dp))
-
-            Text(
-                text = when {
-                    remainingSeconds == 0 -> "Focus session complete!"
-                    paused -> "Session paused"
-                    else -> "Stay focused. You've got this!"
-                },
-                fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            Spacer(modifier = Modifier.height(26.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
             Column(
                 modifier = Modifier
@@ -216,64 +250,173 @@ fun FocusTimerScreen(
                 Spacer(modifier = Modifier.height(8.dp))
 
                 Text(
-                    text = "Work on AI Report",
+                    text = sessionGoal?.title ?: "Work on AI Report",
                     fontSize = 16.sp,
                     fontWeight = FontWeight.SemiBold
                 )
+
+                sessionGoal?.let { goal ->
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = goal.deadlineCountdown(),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        val palette = riskPalette(goal.priority)
+                        Text(
+                            text = goal.priority,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = palette.foreground,
+                            modifier = Modifier
+                                .background(palette.background, RoundedCornerShape(12.dp))
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
+                    }
+                }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
             Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(14.dp))
-                    .border(
-                        1.dp,
-                        MaterialTheme.colorScheme.outline,
-                        RoundedCornerShape(14.dp)
-                    )
-                    .padding(17.dp)
+                    .align(Alignment.CenterHorizontally),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text(
-                    text = "Focus protection is on",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
+                LogicalFocusHourglass(
+                    progress = remainingSeconds.toFloat() / sessionLengthSeconds.toFloat(),
+                    isRunning = !timerPaused && remainingSeconds > 0,
+                    modifier = Modifier.size(width = 190.dp, height = 210.dp)
                 )
 
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
                 Text(
-                    text = "Distracting apps pause automatically. Calls, messages, WhatsApp and audio stay available.",
-                    style = MaterialTheme.typography.bodyMedium,
+                    text = "Focus time left",
+                    fontSize = 14.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-            }
 
-            Spacer(modifier = Modifier.height(18.dp))
+                Spacer(modifier = Modifier.height(3.dp))
 
-            Button(
-                onClick = {
-                    val elapsed = sessionLengthSeconds - remainingSeconds
-                    if (elapsed >= 10 * 60) onTakeBreak(elapsed) else showEarlyBreakMessage = true
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp),
-                shape = RoundedCornerShape(10.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary
-                )
-            ) {
                 Text(
-                    text = "Take a Break",
-                    fontWeight = FontWeight.SemiBold
+                    text = formattedTime,
+                    fontSize = 39.sp,
+                    fontWeight = FontWeight.Bold
                 )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                if (sessionStarted) {
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clickable { paused = !paused }
+                            .border(
+                                2.dp,
+                                MaterialTheme.colorScheme.primary,
+                                CircleShape
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            painter = painterResource(
+                                if (paused) R.drawable.ic_play else R.drawable.ic_pause
+                            ),
+                            contentDescription = if (paused) {
+                                "Resume focus timer"
+                            } else {
+                                "Pause focus timer"
+                            },
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                } else {
+                    Button(
+                        onClick = onStartSession,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
+                        )
+                    ) {
+                        Text(
+                            text = "Start Focus Session",
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
             }
 
-            Spacer(modifier = Modifier.height(28.dp))
+            Spacer(modifier = Modifier.height(16.dp))
         }
+    }
+
+    if (showEndConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showEndConfirmation = false },
+            title = { Text("End focus session?") },
+            text = {
+                Text(
+                    "Your current focus session will end and its remaining time will be cleared. Are you sure you want to return home?"
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showEndConfirmation = false
+                        onBack()
+                    }
+                ) {
+                    Text("End session")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEndConfirmation = false }) {
+                    Text("Keep focusing")
+                }
+            }
+        )
+    }
+
+    if (showProtectionInfo) {
+        AlertDialog(
+            onDismissRequest = { showProtectionInfo = false },
+            title = {
+                Text(
+                    if (sessionStarted) {
+                        "Focus protection is on"
+                    } else {
+                        "Focus protection is ready"
+                    }
+                )
+            },
+            text = {
+                Text(
+                    if (sessionStarted) {
+                        "Distracting apps pause automatically. Calls, messages, WhatsApp and audio stay available."
+                    } else {
+                        "Focus protection will turn on when you start the session. Calls, messages, WhatsApp and audio will remain available."
+                    }
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { showProtectionInfo = false }) {
+                    Text("Got it")
+                }
+            }
+        )
     }
 
     if (showEarlyBreakMessage) {
@@ -292,6 +435,26 @@ fun FocusTimerScreen(
                 }
             }
         )
+    }
+}
+
+private fun Assignment.deadlineCountdown(now: LocalDateTime = LocalDateTime.now()): String {
+    val deadline = runCatching {
+        LocalDateTime.of(
+            LocalDate.parse(deadlineDate),
+            deadlineTime?.let(LocalTime::parse) ?: LocalTime.of(23, 59)
+        )
+    }.getOrNull() ?: return "Deadline unavailable"
+
+    val minutesLeft = ChronoUnit.MINUTES.between(now, deadline)
+    if (minutesLeft < 0) return "Overdue"
+
+    val hoursLeft = (minutesLeft + 59) / 60
+    return if (hoursLeft < 24) {
+        "$hoursLeft ${if (hoursLeft == 1L) "hour" else "hours"} left"
+    } else {
+        val daysLeft = (hoursLeft + 23) / 24
+        "$daysLeft ${if (daysLeft == 1L) "day" else "days"} left"
     }
 }
 

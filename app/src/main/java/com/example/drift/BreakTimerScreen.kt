@@ -19,6 +19,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -32,6 +33,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -74,11 +76,7 @@ fun BreakTimerScreen(
             Row(
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "<",
-                    fontSize = 28.sp,
-                    modifier = Modifier.clickable { onBack() }
-                )
+                DriftBackButton(onClick = onBack)
 
                 Text(
                     text = "Take a Break",
@@ -164,9 +162,17 @@ fun BreakTimerScreen(
                             ),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = if (paused) ">" else "II",
-                            fontWeight = FontWeight.Bold
+                        Icon(
+                            painter = painterResource(
+                                if (paused) R.drawable.ic_play else R.drawable.ic_pause
+                            ),
+                            contentDescription = if (paused) {
+                                "Resume break timer"
+                            } else {
+                                "Pause break timer"
+                            },
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(22.dp)
                         )
                     }
                 }

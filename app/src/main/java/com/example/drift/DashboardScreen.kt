@@ -97,13 +97,22 @@ fun DashboardScreen(
 @Composable
 private fun HomeTopBar(onProfile: () -> Unit, onSettings: () -> Unit) {
     Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-        Text("Drift", style = MaterialTheme.typography.titleLarge)
+        Text(
+            text = "Drift",
+            style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.colorScheme.primary
+        )
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onProfile) {
                 ProfileIcon()
             }
             IconButton(onClick = onSettings) {
-                Text("⚙", fontSize = 23.sp, color = MaterialTheme.colorScheme.primary)
+                Icon(
+                    painter = painterResource(R.drawable.ic_settings),
+                    contentDescription = "Open settings",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp)
+                )
             }
         }
     }

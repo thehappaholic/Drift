@@ -85,11 +85,7 @@ fun EditBudgetScreen(
         Row(
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = "<",
-                fontSize = 28.sp,
-                modifier = Modifier.clickable { onBack() }
-            )
+            DriftBackButton(onClick = onBack)
 
             Text(
                 text = "Edit Budget",

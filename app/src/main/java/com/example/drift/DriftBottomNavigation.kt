@@ -16,7 +16,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
-import com.example.drift.ui.theme.DriftLilac
 
 enum class DriftDestination(val label: String) {
     Home("Home"), Budget("Budget"), Focus("Focus"), Tasks("Tasks"), Insights("Insights")
@@ -47,6 +46,11 @@ fun DriftBottomNavigation(
         destinations.forEach { (destination, action) ->
             val isSelected = destination == selected
             val ink = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+            val iconColor = if (isSelected) {
+                MaterialTheme.colorScheme.onPrimary
+            } else {
+                MaterialTheme.colorScheme.primary
+            }
             Column(
                 Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).clickable(onClick = action)
                     .background(if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent)
@@ -55,7 +59,7 @@ fun DriftBottomNavigation(
             ) {
                 DestinationIcon(
                     destination,
-                    if (destination == DriftDestination.Focus && !isSelected) DriftLilac else ink
+                    iconColor
                 )
                 Spacer(Modifier.height(3.dp))
                 Text(destination.label, style = MaterialTheme.typography.labelSmall, color = ink)

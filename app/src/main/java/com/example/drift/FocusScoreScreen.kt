@@ -41,7 +41,7 @@ fun FocusScoreScreen(
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
-            DriftBottomNavigation(null, onBack, onBudgetClick, onFocusTimerClick, onTasksClick, onInsightsClick)
+            DriftBottomNavigation(DriftDestination.Focus, onBack, onBudgetClick, onFocusTimerClick, onTasksClick, onInsightsClick)
         }
     ) { innerPadding ->
         Column(
@@ -57,11 +57,7 @@ fun FocusScoreScreen(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "<",
-                    fontSize = 28.sp,
-                    modifier = Modifier.clickable { onBack() }
-                )
+                DriftBackButton(onClick = onBack)
 
                 Text(
                     text = "Focus Score",
@@ -162,9 +158,7 @@ fun FocusScoreScreen(
 
             Spacer(modifier = Modifier.height(18.dp))
 
-            Text(
-                text = "View Usage Budget  >",
-                style = MaterialTheme.typography.labelLarge,
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable { onBudgetClick() }
@@ -172,8 +166,19 @@ fun FocusScoreScreen(
                         MaterialTheme.colorScheme.surfaceVariant,
                         RoundedCornerShape(12.dp)
                     )
-                    .padding(16.dp)
-            )
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "View Usage Budget",
+                    style = MaterialTheme.typography.labelLarge
+                )
+                DriftNextIcon(
+                    modifier = Modifier.size(20.dp),
+                    contentDescription = "Open Usage Budget"
+                )
+            }
 
             Spacer(modifier = Modifier.height(28.dp))
         }

@@ -80,11 +80,7 @@ fun UsageBudgetScreen(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "<",
-                    fontSize = 28.sp,
-                    modifier = Modifier.clickable { onBack() }
-                )
+                DriftBackButton(onClick = onBack)
 
                 Text(
                     text = "Usage Budget",

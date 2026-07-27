@@ -120,11 +120,7 @@ fun TasksScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    "‹",
-                    fontSize = 32.sp,
-                    modifier = Modifier.clickable(onClick = onHomeClick)
-                )
+                DriftBackButton(onClick = onHomeClick)
                 Text("Assignments", fontSize = 21.sp, fontWeight = FontWeight.SemiBold)
                 Text(
                     "+",

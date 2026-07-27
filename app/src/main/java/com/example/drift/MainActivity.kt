@@ -111,10 +111,13 @@ class MainActivity : ComponentActivity() {
                     var lastFocusSeconds by remember { mutableStateOf(0) }
                     var lastBreakSeconds by remember { mutableStateOf(0) }
                     var focusRemainingSeconds by remember { mutableStateOf(40 * 60) }
+                    var focusSessionStarted by remember { mutableStateOf(false) }
                     var pendingVerificationEmail by remember { mutableStateOf("") }
                     var signupVerificationRequired by remember { mutableStateOf(false) }
                     var onboardingDraft by remember { mutableStateOf(OnboardingDraft()) }
+                    var onboardingEditReturn by remember { mutableStateOf<String?>(null) }
                     var profileName by remember { mutableStateOf("") }
+                    var profileEmail by remember { mutableStateOf("") }
                     var profileLoadError by remember { mutableStateOf<String?>(null) }
                     val authState by AuthRepository.authState.collectAsState()
                     val passwordRecoveryReady by
@@ -179,6 +182,7 @@ class MainActivity : ComponentActivity() {
                     LaunchedEffect(currentScreen) {
                         if (currentScreen == "profile_loading") {
                             profileLoadError = null
+                            profileEmail = AuthRepository.currentEmail()
                             ProfileRepository.loadCurrentProfile()
                                 .onSuccess { profile ->
                                     profile?.let {
@@ -292,7 +296,15 @@ class MainActivity : ComponentActivity() {
                         )
 
                         "academic_info" -> AcademicInfoScreen(
-                            onBack = { currentScreen = "onboarding_intro" },
+                            onBack = {
+                                val returnScreen = onboardingEditReturn
+                                if (returnScreen != null) {
+                                    onboardingEditReturn = null
+                                    currentScreen = returnScreen
+                                } else {
+                                    currentScreen = "onboarding_intro"
+                                }
+                            },
                             draft = onboardingDraft,
                             onContinue = { academicYear, course ->
                                 onboardingDraft = onboardingDraft.copy(
@@ -331,10 +343,14 @@ class MainActivity : ComponentActivity() {
                         "onboarding_summary" -> OnboardingSummaryScreen(
                             onBack = { currentScreen = "wind_down" },
                             draft = onboardingDraft,
+                            isEditing = onboardingEditReturn != null,
                             onGetStarted = {
                                 ProfileRepository.saveOnboarding(onboardingDraft)
                             },
-                            onSaved = { currentScreen = "dashboard" },
+                            onSaved = {
+                                currentScreen = onboardingEditReturn ?: "dashboard"
+                                onboardingEditReturn = null
+                            },
                             onEditSettings = { currentScreen = "academic_info" }
                         )
 
@@ -342,15 +358,14 @@ class MainActivity : ComponentActivity() {
                             userName = profileName,
                             onFocusClick = {
                                 focusRemainingSeconds = 40 * 60
-                                lastFocusSeconds = 0
-                                lastBreakSeconds = 0
+                                focusSessionStarted = false
                                 currentScreen = "focus_timer"
                             },
                             onFocusScoreClick = { currentScreen = "focus" },
                             onBudgetClick = { currentScreen = "budget" },
                             onTasksClick = { currentScreen = "tasks" },
                             onInsightsClick = { currentScreen = "insights" },
-                            onProfileClick = { currentScreen = "settings" },
+                            onProfileClick = { currentScreen = "profile" },
                             onSettingsClick = { currentScreen = "settings" }
                         )
 
@@ -359,6 +374,7 @@ class MainActivity : ComponentActivity() {
                             onBudgetClick = { currentScreen = "budget" },
                             onFocusTimerClick = {
                                 focusRemainingSeconds = 40 * 60
+                                focusSessionStarted = false
                                 currentScreen = "focus_timer"
                             },
                             onTasksClick = { currentScreen = "tasks" },
@@ -371,6 +387,7 @@ class MainActivity : ComponentActivity() {
                             onHomeClick = { currentScreen = "dashboard" },
                             onFocusClick = {
                                 focusRemainingSeconds = 40 * 60
+                                focusSessionStarted = false
                                 currentScreen = "focus_timer"
                             },
                             onTasksClick = { currentScreen = "tasks" },
@@ -398,6 +415,7 @@ class MainActivity : ComponentActivity() {
                             onBudgetClick = { currentScreen = "budget" },
                             onFocusClick = {
                                 focusRemainingSeconds = 40 * 60
+                                focusSessionStarted = false
                                 currentScreen = "focus_timer"
                             },
                             onInsightsClick = { currentScreen = "insights" }
@@ -408,6 +426,7 @@ class MainActivity : ComponentActivity() {
                             onBudgetClick = { currentScreen = "budget" },
                             onFocusClick = {
                                 focusRemainingSeconds = 40 * 60
+                                focusSessionStarted = false
                                 currentScreen = "focus_timer"
                             },
                             onTasksClick = { currentScreen = "tasks" },
@@ -417,6 +436,7 @@ class MainActivity : ComponentActivity() {
                             onBack = { currentScreen = "dashboard" },
                             onStartFocus = {
                                 focusRemainingSeconds = 40 * 60
+                                focusSessionStarted = true
                                 lastFocusSeconds = 0
                                 lastBreakSeconds = 0
                                 currentScreen = "focus_timer"
@@ -424,7 +444,17 @@ class MainActivity : ComponentActivity() {
                         )
 
                         "focus_timer" -> FocusTimerScreen(
-                            onBack = { currentScreen = "intervention" },
+                            onBack = {
+                                focusRemainingSeconds = 40 * 60
+                                focusSessionStarted = false
+                                currentScreen = "dashboard"
+                            },
+                            sessionStarted = focusSessionStarted,
+                            onStartSession = {
+                                focusSessionStarted = true
+                                lastFocusSeconds = 0
+                                lastBreakSeconds = 0
+                            },
                             remainingSeconds = focusRemainingSeconds,
                             onRemainingSecondsChange = { focusRemainingSeconds = it },
                             onTakeBreak = { elapsedSeconds ->
@@ -433,6 +463,7 @@ class MainActivity : ComponentActivity() {
                             },
                             onSessionComplete = {
                                 lastFocusSeconds = 40 * 60
+                                focusSessionStarted = false
                                 currentScreen = "session_complete"
                             }
                         )
@@ -455,7 +486,10 @@ class MainActivity : ComponentActivity() {
 
                         "settings" -> SettingsScreen(
                             onBack = { currentScreen = "dashboard" },
-                            onEditOnboarding = { currentScreen = "academic_info" },
+                            onEditOnboarding = {
+                                onboardingEditReturn = "settings"
+                                currentScreen = "academic_info"
+                            },
                             onLogout = {
                                 appScope.launch { AuthRepository.signOut() }
                             },
@@ -464,6 +498,18 @@ class MainActivity : ComponentActivity() {
                                 darkMode = it
                                 appearancePreferences.edit().putBoolean("dark_mode", it).apply()
                             }
+                        )
+
+                        "profile" -> ProfileScreen(
+                            onBack = { currentScreen = "dashboard" },
+                            onOpenSettings = { currentScreen = "settings" },
+                            onEditProfile = {
+                                onboardingEditReturn = "profile"
+                                currentScreen = "academic_info"
+                            },
+                            name = profileName,
+                            email = profileEmail,
+                            onboarding = onboardingDraft
                         )
 
                         else -> WelcomeScreen(
@@ -2395,6 +2441,7 @@ fun WindDownScreen(
 fun OnboardingSummaryScreen(
     onBack: () -> Unit,
     draft: OnboardingDraft = OnboardingDraft(),
+    isEditing: Boolean = false,
     onGetStarted: suspend () -> Result<Unit> = { Result.success(Unit) },
     onSaved: () -> Unit = {},
     onEditSettings: () -> Unit = {}
@@ -2432,7 +2479,7 @@ fun OnboardingSummaryScreen(
             Spacer(modifier = Modifier.height(32.dp))
 
             Text(
-                text = "Almost Done!",
+                text = if (isEditing) "Review Changes" else "Almost Done!",
                 fontSize = 30.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onBackground,
@@ -2467,7 +2514,7 @@ fun OnboardingSummaryScreen(
             Spacer(modifier = Modifier.height(24.dp))
 
             Text(
-                text = "All Set!",
+                text = if (isEditing) "Ready to save" else "All Set!",
                 fontSize = 26.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onBackground
@@ -2517,7 +2564,11 @@ fun OnboardingSummaryScreen(
         }
 
         DriftPrimaryButton(
-            text = if (isSaving) "Saving…" else "Get Started",
+            text = when {
+                isSaving -> "Saving…"
+                isEditing -> "Save Changes"
+                else -> "Get Started"
+            },
             onClick = {
                 if (!isSaving) {
                     saveError = null
