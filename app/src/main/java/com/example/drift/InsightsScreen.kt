@@ -18,12 +18,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.drift.ui.theme.*
 
-private val InsightBlue = Color(0xFFDCEAF4)
-private val InsightBlueInk = Color(0xFF315E78)
-private val InsightLilac = Color(0xFFE9E0F3)
 private val InsightLilacInk = Color(0xFF624A78)
-private val InsightMint = Color(0xFFD5F1EA)
-private val InsightMintInk = Color(0xFF23675D)
 private val InsightCard = RoundedCornerShape(14.dp)
 
 @Composable
@@ -122,7 +117,7 @@ fun InsightsScreen(
             Spacer(Modifier.height(10.dp))
             ChangeCards()
             Spacer(Modifier.height(26.dp))
-            SectionHeading("RISK PATTERN", "Last four days")
+            SectionHeading("SCREEN-TIME RISK", "Last seven days")
             Spacer(Modifier.height(10.dp))
             RiskHistoryCard()
             Spacer(Modifier.height(26.dp))
@@ -155,6 +150,7 @@ private fun WeeklyWinCard() {
 
 @Composable
 private fun FocusChart(scores: List<Int>, days: List<String>) {
+    val averagePalette = focusScorePalette(73)
     Column(
         Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, InsightCard).border(1.dp, MaterialTheme.colorScheme.outline, InsightCard).padding(18.dp)
     ) {
@@ -163,28 +159,19 @@ private fun FocusChart(scores: List<Int>, days: List<String>) {
                 Text("73", style = MaterialTheme.typography.headlineSmall)
                 Text("weekly average", style = MaterialTheme.typography.labelSmall, color = Muted)
             }
-            Text("+5 points", style = MaterialTheme.typography.labelMedium, color = Sage,
-                modifier = Modifier.background(SageSoft, RoundedCornerShape(7.dp)).padding(horizontal = 8.dp, vertical = 5.dp))
+            Text("+5 points", style = MaterialTheme.typography.labelMedium, color = averagePalette.foreground,
+                modifier = Modifier.background(averagePalette.background, RoundedCornerShape(7.dp)).padding(horizontal = 8.dp, vertical = 5.dp))
         }
         Spacer(Modifier.height(22.dp))
         Row(Modifier.fillMaxWidth().height(150.dp), Arrangement.spacedBy(8.dp), Alignment.Bottom) {
             scores.forEachIndexed { index, score ->
-                val barColor = when {
-                    score >= 78 -> InsightMint
-                    score >= 70 -> InsightBlue
-                    else -> Color(0xFFF4DDCF)
-                }
-                val ink = when {
-                    score >= 78 -> InsightMintInk
-                    score >= 70 -> InsightBlueInk
-                    else -> Color(0xFF8A583C)
-                }
+                val palette = focusScorePalette(score)
                 Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(score.toString(), style = MaterialTheme.typography.labelSmall, color = ink)
+                    Text(score.toString(), style = MaterialTheme.typography.labelSmall, color = palette.foreground)
                     Spacer(Modifier.height(5.dp))
                     Box(
                         Modifier.fillMaxWidth().height((score * 1.05).dp).clip(RoundedCornerShape(7.dp, 7.dp, 3.dp, 3.dp))
-                            .background(barColor)
+                            .background(palette.background)
                     )
                     Spacer(Modifier.height(7.dp))
                     Text(days[index], style = MaterialTheme.typography.labelSmall, color = Muted)
@@ -198,9 +185,10 @@ private fun FocusChart(scores: List<Int>, days: List<String>) {
 
 @Composable
 private fun ChangeCards() {
+    val positiveChange = metricStatusPalette(MetricStatus.Positive)
     Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(10.dp)) {
-        ChangeCard("Screen time", "−42m", "per day", InsightMint, InsightMintInk, Modifier.weight(1f))
-        ChangeCard("Phone checks", "−11", "per day", InsightBlue, InsightBlueInk, Modifier.weight(1f))
+        ChangeCard("Screen time", "−42m", "per day", positiveChange.background, positiveChange.foreground, Modifier.weight(1f))
+        ChangeCard("Phone checks", "−11", "per day", positiveChange.background, positiveChange.foreground, Modifier.weight(1f))
     }
 }
 
@@ -216,17 +204,50 @@ private fun ChangeCard(title: String, value: String, note: String, bg: Color, in
 
 @Composable
 private fun RiskHistoryCard() {
-    val history = listOf("Today" to "Medium", "Yesterday" to "Low", "Friday" to "Medium", "Thursday" to "High")
+    val history = listOf(
+        "Today" to 360,
+        "Yesterday" to 330,
+        "Saturday" to 270,
+        "Friday" to 210,
+        "Thursday" to 150,
+        "Wednesday" to 90,
+        "Tuesday" to 30
+    )
     Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, InsightCard).border(1.dp, MaterialTheme.colorScheme.outline, InsightCard).padding(16.dp)) {
-        history.forEachIndexed { index, (day, risk) ->
-            val palette = riskPalette(risk)
+        history.forEachIndexed { index, (day, minutes) ->
+            val band = screenTimeBand(minutes)
+            val palette = screenTimePalette(minutes)
+            val risk = when (band) {
+                ScreenTimeBand.Low1,
+                ScreenTimeBand.Low2,
+                ScreenTimeBand.Low3 -> "Low"
+                ScreenTimeBand.High -> "High"
+                else -> "Medium"
+            }
             Row(Modifier.fillMaxWidth().padding(vertical = 9.dp), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-                Text(day, style = MaterialTheme.typography.bodyMedium)
-                Text(risk, style = MaterialTheme.typography.labelMedium, color = palette.foreground,
+                Column {
+                    Text(day, style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        formatInsightDuration(minutes),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Text("$risk · ${formatInsightDuration(minutes)}", style = MaterialTheme.typography.labelMedium, color = palette.foreground,
                     modifier = Modifier.background(palette.background, RoundedCornerShape(7.dp)).padding(horizontal = 10.dp, vertical = 5.dp))
             }
             if (index < history.lastIndex) HorizontalDivider(color = Border)
         }
+    }
+}
+
+private fun formatInsightDuration(minutes: Int): String {
+    val hours = minutes / 60
+    val remainingMinutes = minutes % 60
+    return if (remainingMinutes == 0) {
+        "$hours hr"
+    } else {
+        "$hours hr $remainingMinutes min"
     }
 }
 
@@ -242,7 +263,7 @@ private fun PatternCard(onAdjustWindDown: () -> Unit) {
         Text("Late-night phone checks", style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(6.dp))
         Text("On nights with checks after 11 PM, your next-day focus score is about 9 points lower.",
-            style = MaterialTheme.typography.bodyMedium, color = Color(0xFF6F5434))
+            style = MaterialTheme.typography.bodyMedium, color = palette.foreground)
         Spacer(Modifier.height(15.dp))
         Text("Adjust wind-down  →", style = MaterialTheme.typography.labelLarge, color = palette.foreground)
     }

@@ -47,17 +47,23 @@ fun UsageBudgetScreen(
     onInsightsClick: () -> Unit = {},
     instagramLimit: Int,
     youtubeLimit: Int,
-    browserLimit: Int
+    browserLimit: Int,
+    additionalBudgets: Map<String, Int> = emptyMap()
 ) {
+    val dailyUsageMinutes = 117
+    val dailyUsagePalette = screenTimePalette(dailyUsageMinutes)
     val apps = listOf(
         AppBudget("Instagram", 30, instagramLimit),
         AppBudget("YouTube", 25, youtubeLimit),
-        AppBudget("Browser", 35, browserLimit),
+        AppBudget("Browser", 35, browserLimit)
+    ) + additionalBudgets.toSortedMap(String.CASE_INSENSITIVE_ORDER).map { (name, limit) ->
+        AppBudget(name, 0, limit)
+    } + listOf(
         AppBudget("WhatsApp", 0, 0, "Whitelisted")
     )
 
     val allocatedMinutes =
-        instagramLimit + youtubeLimit + browserLimit
+        instagramLimit + youtubeLimit + browserLimit + additionalBudgets.values.sum()
 
     val flexPoolMinutes =
         (180 - allocatedMinutes).coerceAtLeast(0)
@@ -113,12 +119,13 @@ fun UsageBudgetScreen(
             Spacer(modifier = Modifier.height(14.dp))
 
             LinearProgressIndicator(
-                progress = { 117f / 180f },
+                progress = { dailyUsageMinutes / 180f },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(12.dp),
-                color = MaterialTheme.colorScheme.primary,
-                trackColor = MaterialTheme.colorScheme.surfaceVariant
+                color = dailyUsagePalette.foreground,
+                trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                drawStopIndicator = {}
             )
 
             Spacer(modifier = Modifier.height(10.dp))
@@ -127,7 +134,11 @@ fun UsageBudgetScreen(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text("117 min used", fontSize = 13.sp)
+                Text(
+                    "$dailyUsageMinutes min used · Low",
+                    fontSize = 13.sp,
+                    color = dailyUsagePalette.foreground
+                )
                 Text("63 min left", fontSize = 13.sp)
             }
 
@@ -196,7 +207,8 @@ fun UsageBudgetScreen(
                         .fillMaxWidth()
                         .height(10.dp),
                     color = MaterialTheme.colorScheme.secondary,
-                    trackColor = MaterialTheme.colorScheme.surfaceVariant
+                    trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                    drawStopIndicator = {}
                 )
             }
 
@@ -269,7 +281,8 @@ private fun AppBudgetRow(
                     .fillMaxWidth()
                     .height(8.dp),
                 color = MaterialTheme.colorScheme.primary,
-                trackColor = MaterialTheme.colorScheme.surfaceVariant
+                trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                drawStopIndicator = {}
             )
 
             Spacer(modifier = Modifier.height(6.dp))

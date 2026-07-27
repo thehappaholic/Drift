@@ -703,6 +703,8 @@ private fun LogicalFocusHourglass(
         val innerHalfWidth = (glassRight - glassLeft) / 2f - size.width * 0.045f
         val upperHeight = neckY - innerTopY
         val lowerHeight = innerBottomY - neckY
+        val maxSandHalfWidth = innerHalfWidth * 0.84f
+        val sandNeckHalfWidth = neckHalfWidth * 0.42f
 
         val glassPath = Path().apply {
             moveTo(glassLeft, topY)
@@ -749,14 +751,11 @@ private fun LogicalFocusHourglass(
             if (remaining > 0f) {
                 // A triangle's area is width × height / 2. Scaling both dimensions
                 // by sqrt(remaining) makes visible sand volume match remaining time.
-                val upperScale = sqrt(remaining)
-                val surfaceY = neckY - upperHeight * upperScale
-                val sandNeckHalfWidth = neckHalfWidth * 0.42f
-                val safeUpperHalfWidth = innerHalfWidth * 0.84f
+                val upperExtent = sqrt(remaining)
+                val surfaceY = neckY - upperHeight * upperExtent
                 val surfaceHalfWidth =
-                    sandNeckHalfWidth +
-                        (safeUpperHalfWidth - sandNeckHalfWidth) * upperScale
-                val surfaceDip = size.height * 0.018f * upperScale
+                    (maxSandHalfWidth * upperExtent).coerceAtLeast(sandNeckHalfWidth)
+                val surfaceDip = size.height * 0.018f * upperExtent
                 val upperSand = Path().apply {
                     moveTo(centerX - surfaceHalfWidth, surfaceY)
                     cubicTo(
@@ -789,10 +788,10 @@ private fun LogicalFocusHourglass(
                 drawPath(upperSand, sandBrush)
             }
 
-            val lowerScale = sqrt(transferred)
-            val moundHeight = lowerHeight * lowerScale * 0.88f
+            val lowerExtent = sqrt(transferred)
+            val moundHeight = lowerHeight * lowerExtent
             val pileTopY = innerBottomY - moundHeight
-            val pileHalfWidth = innerHalfWidth * 0.84f * lowerScale
+            val pileHalfWidth = maxSandHalfWidth * lowerExtent
 
             if (transferred > 0f) {
                 // Height and base both grow with sqrt(elapsed), so pile area grows

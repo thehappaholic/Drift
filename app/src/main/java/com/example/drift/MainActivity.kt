@@ -103,6 +103,9 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val appearancePreferences = remember { getSharedPreferences("appearance", MODE_PRIVATE) }
+            val focusStreakStore = remember {
+                FocusStreakStore(getSharedPreferences("focus_streak", MODE_PRIVATE))
+            }
             var darkMode by remember { mutableStateOf(appearancePreferences.getBoolean("dark_mode", false)) }
             DriftTheme(darkTheme = darkMode) {
                 // The platform-backed ripple can crash on some Samsung devices when a
@@ -116,10 +119,14 @@ class MainActivity : ComponentActivity() {
                     var instagramBudget by remember { mutableStateOf(45) }
                     var youtubeBudget by remember { mutableStateOf(40) }
                     var browserBudget by remember { mutableStateOf(60) }
+                    var additionalBudgets by remember {
+                        mutableStateOf<Map<String, Int>>(emptyMap())
+                    }
                     var lastFocusSeconds by remember { mutableStateOf(0) }
                     var lastBreakSeconds by remember { mutableStateOf(0) }
                     var focusRemainingSeconds by remember { mutableStateOf(40 * 60) }
                     var focusSessionStarted by remember { mutableStateOf(false) }
+                    var focusStreakStats by remember { mutableStateOf(focusStreakStore.load()) }
                     var pendingVerificationEmail by remember { mutableStateOf("") }
                     var signupVerificationRequired by remember { mutableStateOf(false) }
                     var onboardingDraft by remember { mutableStateOf(OnboardingDraft()) }
@@ -442,20 +449,34 @@ class MainActivity : ComponentActivity() {
 
                         "dashboard" -> DashboardScreen(
                             userName = profileName,
+                            appBudgets = mapOf(
+                                "Instagram" to instagramBudget,
+                                "YouTube" to youtubeBudget,
+                                "Chrome" to browserBudget
+                            ) + additionalBudgets,
                             onFocusClick = {
                                 focusRemainingSeconds = 40 * 60
                                 focusSessionStarted = false
                                 currentScreen = "focus_timer"
                             },
-                            onFocusScoreClick = { currentScreen = "focus" },
+                            onFocusScoreClick = {
+                                focusStreakStats = focusStreakStore.load()
+                                currentScreen = "focus"
+                            },
                             onBudgetClick = { currentScreen = "budget" },
                             onTasksClick = { currentScreen = "tasks" },
                             onInsightsClick = { currentScreen = "insights" },
+                            onUsageHistoryClick = { currentScreen = "usage_history" },
                             onProfileClick = { currentScreen = "profile" },
                             onSettingsClick = { currentScreen = "settings" }
                         )
 
+                        "usage_history" -> UsageHistoryScreen(
+                            onBack = { currentScreen = "dashboard" }
+                        )
+
                         "focus" -> FocusScoreScreen(
+                            stats = focusStreakStats,
                             onBack = { currentScreen = "dashboard" },
                             onBudgetClick = { currentScreen = "budget" },
                             onFocusTimerClick = {
@@ -480,7 +501,8 @@ class MainActivity : ComponentActivity() {
                             onInsightsClick = { currentScreen = "insights" },
                             instagramLimit = instagramBudget,
                             youtubeLimit = youtubeBudget,
-                            browserLimit = browserBudget
+                            browserLimit = browserBudget,
+                            additionalBudgets = additionalBudgets
                         )
 
                         "edit_budget" -> EditBudgetScreen(
@@ -488,10 +510,12 @@ class MainActivity : ComponentActivity() {
                             initialInstagram = instagramBudget,
                             initialYoutube = youtubeBudget,
                             initialBrowser = browserBudget,
-                            onSave = { instagram, youtube, browser ->
+                            initialAdditionalBudgets = additionalBudgets,
+                            onSave = { instagram, youtube, browser, additional ->
                                 instagramBudget = instagram
                                 youtubeBudget = youtube
                                 browserBudget = browser
+                                additionalBudgets = additional
                                 currentScreen = "budget"
                             }
                         )
@@ -550,6 +574,8 @@ class MainActivity : ComponentActivity() {
                             onSessionComplete = {
                                 lastFocusSeconds = 40 * 60
                                 focusSessionStarted = false
+                                focusStreakStats =
+                                    focusStreakStore.recordCompletedFocus(lastFocusSeconds)
                                 currentScreen = "session_complete"
                             }
                         )

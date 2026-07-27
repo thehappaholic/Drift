@@ -1,5 +1,7 @@
 package com.example.drift
 
+import android.content.Intent
+import android.content.pm.PackageManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -9,11 +11,14 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Slider
@@ -33,6 +38,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -44,8 +50,13 @@ fun EditBudgetScreen(
     initialInstagram: Int,
     initialYoutube: Int,
     initialBrowser: Int,
-    onSave: (Int, Int, Int) -> Unit
+    initialAdditionalBudgets: Map<String, Int> = emptyMap(),
+    onSave: (Int, Int, Int, Map<String, Int>) -> Unit
 ) {
+    val context = LocalContext.current
+    val installedApps = remember(context) {
+        loadLaunchableAppNames(context.packageManager)
+    }
     var instagram by remember {
         mutableFloatStateOf(initialInstagram.toFloat())
     }
@@ -57,7 +68,12 @@ fun EditBudgetScreen(
     var browser by remember {
         mutableFloatStateOf(initialBrowser.toFloat())
     }
-    val addedApps = remember { mutableStateListOf<Pair<String, Float>>() }
+    val addedApps = remember(initialAdditionalBudgets) {
+        mutableStateListOf<Pair<String, Float>>().apply {
+            initialAdditionalBudgets.toSortedMap(String.CASE_INSENSITIVE_ORDER)
+                .forEach { (name, minutes) -> add(name to minutes.toFloat()) }
+        }
+    }
     var showAddApp by remember { mutableStateOf(false) }
     var appName by remember { mutableStateOf("") }
     val whitelist = remember {
@@ -208,7 +224,8 @@ fun EditBudgetScreen(
                 onSave(
                     instagram.roundToInt(),
                     youtube.roundToInt(),
-                    browser.roundToInt()
+                    browser.roundToInt(),
+                    addedApps.associate { (name, minutes) -> name to minutes.roundToInt() }
                 )
             },
             enabled = budgetValid,
@@ -238,9 +255,50 @@ fun EditBudgetScreen(
             title = { Text("Add an app") },
             text = {
                 Column {
-                    Text("Add only the app you want to budget.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.height(12.dp))
-                    OutlinedTextField(value = appName, onValueChange = { appName = it }, label = { Text("App name") }, singleLine = true)
+                    OutlinedTextField(
+                        value = appName,
+                        onValueChange = { appName = it },
+                        label = { Text("Search installed apps") },
+                        placeholder = { Text("Type an app name") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    val reservedNames = setOf("Instagram", "YouTube", "Browser")
+                    val availableApps = installedApps.filter { installedName ->
+                        installedName.contains(appName.trim(), ignoreCase = true) &&
+                            reservedNames.none { it.equals(installedName, ignoreCase = true) } &&
+                            addedApps.none { it.first.equals(installedName, ignoreCase = true) }
+                    }
+                    Text(
+                        "Apps on this device",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    LazyColumn(Modifier.fillMaxWidth().heightIn(max = 240.dp)) {
+                        items(availableApps, key = { it }) { installedName ->
+                            Text(
+                                installedName,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        addedApps.add(installedName to 30f)
+                                        appName = ""
+                                        showAddApp = false
+                                    }
+                                    .padding(vertical = 11.dp),
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                    }
+                    if (availableApps.isEmpty()) {
+                        Text(
+                            "No matching installed apps. You can add the typed name manually.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             },
             confirmButton = {
@@ -248,15 +306,30 @@ fun EditBudgetScreen(
                     enabled = appName.trim().isNotEmpty(),
                     onClick = {
                         val cleanName = appName.trim()
-                        if (addedApps.none { it.first.equals(cleanName, true) }) addedApps.add(cleanName to 30f)
+                        val reservedNames = setOf("Instagram", "YouTube", "Browser")
+                        if (
+                            reservedNames.none { it.equals(cleanName, true) } &&
+                            addedApps.none { it.first.equals(cleanName, true) }
+                        ) {
+                            addedApps.add(cleanName to 30f)
+                        }
                         appName = ""
                         showAddApp = false
                     }
-                ) { Text("Add") }
+                ) { Text("Add manually") }
             },
             dismissButton = { TextButton(onClick = { showAddApp = false }) { Text("Cancel") } }
         )
     }
+}
+
+private fun loadLaunchableAppNames(packageManager: PackageManager): List<String> {
+    val launchIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+    return packageManager.queryIntentActivities(launchIntent, PackageManager.MATCH_ALL)
+        .map { it.loadLabel(packageManager).toString().trim() }
+        .filter(String::isNotEmpty)
+        .distinctBy(String::lowercase)
+        .sortedWith(String.CASE_INSENSITIVE_ORDER)
 }
 
 @Composable

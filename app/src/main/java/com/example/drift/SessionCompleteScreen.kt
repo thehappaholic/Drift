@@ -25,10 +25,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -44,8 +40,6 @@ fun SessionCompleteScreen(
     focusedSeconds: Int,
     breakSeconds: Int
 ) {
-    var rating by remember { mutableIntStateOf(0) }
-
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background
     ) { innerPadding ->
@@ -141,48 +135,6 @@ fun SessionCompleteScreen(
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
                 SessionStat("Focus Score Impact", if (focusedSeconds >= 20 * 60) "+8" else "+1")
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
-                    .border(
-                        1.dp,
-                        MaterialTheme.colorScheme.outline,
-                        RoundedCornerShape(14.dp)
-                    )
-                    .padding(18.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(
-                    text = "How was your session?",
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(9.dp)
-                ) {
-                    for (star in 1..5) {
-                        Text(
-                            text = if (star <= rating) "*" else "o",
-                            fontSize = 30.sp,
-                            color = if (star <= rating) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.outline
-                            },
-                            modifier = Modifier.clickable {
-                                rating = star
-                            }
-                        )
-                    }
-                }
             }
 
             Spacer(modifier = Modifier.height(18.dp))
