@@ -1,10 +1,8 @@
 package com.example.drift
 
 import android.content.SharedPreferences
-import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
-import java.time.temporal.TemporalAdjusters
 
 const val DAILY_FOCUS_GOAL_MINUTES = 40
 
@@ -37,7 +35,6 @@ class FocusStreakStore(private val preferences: SharedPreferences) {
         val history = readHistory()
         val current = calculateCurrentStreak(history, today)
         val longest = maxOf(preferences.getInt(KEY_LONGEST_STREAK, 0), calculateLongestStreak(history))
-        val startOfWeek = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
         if (longest != preferences.getInt(KEY_LONGEST_STREAK, 0)) {
             preferences.edit().putInt(KEY_LONGEST_STREAK, longest).apply()
         }
@@ -45,8 +42,8 @@ class FocusStreakStore(private val preferences: SharedPreferences) {
             todayMinutes = history[today] ?: 0,
             currentStreak = current,
             longestStreak = longest,
-            recentDays = (0L..6L).map { offset ->
-                val date = startOfWeek.plusDays(offset)
+            recentDays = (364L downTo 0L).map { offset ->
+                val date = today.minusDays(offset)
                 FocusDay(date, history[date] ?: 0)
             }
         )

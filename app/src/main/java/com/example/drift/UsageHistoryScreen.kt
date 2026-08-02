@@ -126,6 +126,7 @@ fun UsageHistoryScreen(onBack: () -> Unit) {
                 val selected = history.firstOrNull { it.date == selectedDate }
                     ?: history.lastOrNull()
                     ?: DailyUsageHistory(LocalDate.now(), emptyList())
+                val unavailable = selected.availability == UsageDataAvailability.Unavailable
                 val palette = screenTimePalette(selected.totalMinutes)
 
                 Column(
@@ -140,12 +141,12 @@ fun UsageHistoryScreen(onBack: () -> Unit) {
                     )
                     Spacer(Modifier.height(5.dp))
                     Text(
-                        formatUsageMinutes(selected.totalMinutes),
+                        if (unavailable) "Not collected" else formatUsageMinutes(selected.totalMinutes),
                         style = MaterialTheme.typography.displaySmall,
                         color = palette.foreground
                     )
                     Text(
-                        "${selected.apps.size} apps used",
+                        if (unavailable) "Drift had not started mobile-only tracking" else if (selected.availability == UsageDataAvailability.Partial) "Today · still collecting" else "${selected.apps.size} apps used · finalized",
                         style = MaterialTheme.typography.bodyMedium,
                         color = palette.foreground
                     )
@@ -196,7 +197,13 @@ fun UsageHistoryScreen(onBack: () -> Unit) {
                         .border(1.dp, MaterialTheme.colorScheme.outline, HistoryCardShape)
                         .padding(horizontal = 16.dp)
                 ) {
-                    if (selected.apps.isEmpty()) {
+                    if (unavailable) {
+                        Text(
+                            "Exact Android events are no longer available for this date. Drift will not estimate or invent a total.",
+                            modifier = Modifier.padding(vertical = 18.dp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else if (selected.apps.isEmpty()) {
                         Text(
                             "No app usage recorded for this day.",
                             modifier = Modifier.padding(vertical = 18.dp),

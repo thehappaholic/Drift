@@ -23,12 +23,21 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.time.LocalDate
 
 private data class AppBudget(
     val name: String,
@@ -50,16 +59,31 @@ fun UsageBudgetScreen(
     browserLimit: Int,
     additionalBudgets: Map<String, Int> = emptyMap()
 ) {
-    val dailyUsageMinutes = 117
+    val context = LocalContext.current
+    var todayUsage by remember {
+        mutableStateOf(DailyUsageHistory(LocalDate.now(), emptyList(), availability = UsageDataAvailability.Partial))
+    }
+    LaunchedEffect(Unit) {
+        if (UsageHistoryRepository.hasUsageAccess(context)) {
+            todayUsage = withContext(Dispatchers.IO) {
+                UsageHistoryRepository.loadLastSevenDays(context).lastOrNull()
+                    ?: DailyUsageHistory(LocalDate.now(), emptyList(), availability = UsageDataAvailability.Partial)
+            }
+        }
+    }
+    val dailyUsageMinutes = todayUsage.totalMinutes
     val dailyUsagePalette = screenTimePalette(dailyUsageMinutes)
+    fun usedMinutes(vararg names: String): Int = todayUsage.apps
+        .firstOrNull { app -> names.any { name -> name.equals(app.appName, ignoreCase = true) } }
+        ?.foregroundMinutes ?: 0
     val apps = listOf(
-        AppBudget("Instagram", 30, instagramLimit),
-        AppBudget("YouTube", 25, youtubeLimit),
-        AppBudget("Browser", 35, browserLimit)
+        AppBudget("Instagram", usedMinutes("Instagram"), instagramLimit),
+        AppBudget("YouTube", usedMinutes("YouTube"), youtubeLimit),
+        AppBudget("Chrome", usedMinutes("Chrome", "Browser"), browserLimit)
     ) + additionalBudgets.toSortedMap(String.CASE_INSENSITIVE_ORDER).map { (name, limit) ->
-        AppBudget(name, 0, limit)
+        AppBudget(name, usedMinutes(name), limit)
     } + listOf(
-        AppBudget("WhatsApp", 0, 0, "Whitelisted")
+        AppBudget("WhatsApp", usedMinutes("WhatsApp"), 0, "Whitelisted")
     )
 
     val allocatedMinutes =
@@ -123,7 +147,7 @@ fun UsageBudgetScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(12.dp),
-                color = dailyUsagePalette.foreground,
+                color = dailyUsagePalette.background,
                 trackColor = MaterialTheme.colorScheme.surfaceVariant,
                 drawStopIndicator = {}
             )
@@ -135,11 +159,11 @@ fun UsageBudgetScreen(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    "$dailyUsageMinutes min used · Low",
+                    "$dailyUsageMinutes min used · ${usageStatusLabel(dailyUsageMinutes)}",
                     fontSize = 13.sp,
-                    color = dailyUsagePalette.foreground
+                    color = riskAccentColor(dailyUsagePalette)
                 )
-                Text("63 min left", fontSize = 13.sp)
+                Text("${(180 - dailyUsageMinutes).coerceAtLeast(0)} min left", fontSize = 13.sp)
             }
 
             Spacer(modifier = Modifier.height(30.dp))
@@ -257,7 +281,7 @@ private fun AppBudgetRow(
 
             if (app.status != null) {
                 Text(
-                    text = app.status,
+                    text = if (app.used > 0) "${app.status} · ${app.used} min" else app.status,
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -270,6 +294,7 @@ private fun AppBudgetRow(
         }
 
         if (app.status == null) {
+            val palette = budgetUsagePalette(app.used, app.limit)
             Spacer(modifier = Modifier.height(10.dp))
 
             LinearProgressIndicator(
@@ -280,7 +305,7 @@ private fun AppBudgetRow(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(8.dp),
-                color = MaterialTheme.colorScheme.primary,
+                color = palette.background,
                 trackColor = MaterialTheme.colorScheme.surfaceVariant,
                 drawStopIndicator = {}
             )
@@ -290,9 +315,16 @@ private fun AppBudgetRow(
             Text(
                 text = "${app.used} / ${app.limit} min",
                 fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = riskAccentColor(palette),
                 modifier = Modifier.align(Alignment.End)
             )
         }
     }
+}
+
+private fun usageStatusLabel(minutes: Int): String = when (screenTimeBand(minutes)) {
+    ScreenTimeBand.Low1, ScreenTimeBand.Low2, ScreenTimeBand.Low3 -> "Low"
+    ScreenTimeBand.Medium1 -> "Moderate"
+    ScreenTimeBand.Medium2, ScreenTimeBand.Medium3 -> "Elevated"
+    ScreenTimeBand.High -> "High"
 }

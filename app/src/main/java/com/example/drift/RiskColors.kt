@@ -1,10 +1,16 @@
 package com.example.drift
 
 import androidx.compose.runtime.Composable
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import com.example.drift.ui.theme.LocalScreenTimeColors
 
 data class RiskPalette(val background: Color, val foreground: Color)
+
+@Composable
+fun riskAccentColor(palette: RiskPalette): Color =
+    if (MaterialTheme.colorScheme.background.luminance() < .5f) palette.background else palette.foreground
 
 enum class MetricStatus {
     Positive,
@@ -45,9 +51,8 @@ fun screenTimeBand(totalMinutes: Int): ScreenTimeBand = when {
     totalMinutes < 60 -> ScreenTimeBand.Low1
     totalMinutes < 120 -> ScreenTimeBand.Low2
     totalMinutes < 180 -> ScreenTimeBand.Low3
-    totalMinutes < 240 -> ScreenTimeBand.Medium1
-    totalMinutes < 300 -> ScreenTimeBand.Medium2
-    totalMinutes < 360 -> ScreenTimeBand.Medium3
+    totalMinutes <= 270 -> ScreenTimeBand.Medium1
+    totalMinutes < 360 -> ScreenTimeBand.Medium2
     else -> ScreenTimeBand.High
 }
 
@@ -59,7 +64,7 @@ fun screenTimePalette(totalMinutes: Int): RiskPalette {
         ScreenTimeBand.Low2 -> RiskPalette(colors.low2, colors.onLow)
         ScreenTimeBand.Low3 -> RiskPalette(colors.low3, colors.onLow)
         ScreenTimeBand.Medium1 -> RiskPalette(colors.medium1, colors.onMedium)
-        ScreenTimeBand.Medium2 -> RiskPalette(colors.medium2, colors.onMedium)
+        ScreenTimeBand.Medium2 -> RiskPalette(colors.medium2, colors.onMediumStrong)
         ScreenTimeBand.Medium3 -> RiskPalette(colors.medium3, colors.onMediumStrong)
         ScreenTimeBand.High -> RiskPalette(colors.high, colors.onHigh)
     }
@@ -92,7 +97,8 @@ fun riskPalette(level: String): RiskPalette {
     val colors = LocalScreenTimeColors.current
     return when (level.lowercase()) {
         "low", "good" -> RiskPalette(colors.low1, colors.onLowStrong)
-        "medium", "moderate" -> RiskPalette(colors.medium2, colors.onMedium)
+        "medium", "moderate" -> RiskPalette(colors.medium1, colors.onMedium)
+        "elevated" -> RiskPalette(colors.medium2, colors.onMediumStrong)
         "medium 1" -> RiskPalette(colors.medium1, colors.onMedium)
         "medium 2" -> RiskPalette(colors.medium2, colors.onMedium)
         "medium 3" -> RiskPalette(colors.medium3, colors.onMediumStrong)

@@ -449,6 +449,7 @@ class MainActivity : ComponentActivity() {
 
                         "dashboard" -> DashboardScreen(
                             userName = profileName,
+                            focusStreakStats = focusStreakStats,
                             appBudgets = mapOf(
                                 "Instagram" to instagramBudget,
                                 "YouTube" to youtubeBudget,
@@ -477,6 +478,11 @@ class MainActivity : ComponentActivity() {
 
                         "focus" -> FocusScoreScreen(
                             stats = focusStreakStats,
+                            appBudgets = mapOf(
+                                "Instagram" to instagramBudget,
+                                "YouTube" to youtubeBudget,
+                                "Chrome" to browserBudget
+                            ) + additionalBudgets,
                             onBack = { currentScreen = "dashboard" },
                             onBudgetClick = { currentScreen = "budget" },
                             onFocusTimerClick = {
@@ -532,6 +538,12 @@ class MainActivity : ComponentActivity() {
                         )
 
                         "insights" -> InsightsScreen(
+                            focusStreakStats = focusStreakStats,
+                            appBudgets = mapOf(
+                                "Instagram" to instagramBudget,
+                                "YouTube" to youtubeBudget,
+                                "Chrome" to browserBudget
+                            ) + additionalBudgets,
                             onHomeClick = { currentScreen = "dashboard" },
                             onBudgetClick = { currentScreen = "budget" },
                             onFocusClick = {

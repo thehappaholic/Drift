@@ -14,11 +14,9 @@ class ScreenTimeBandTest {
             120 to ScreenTimeBand.Low3,
             179 to ScreenTimeBand.Low3,
             180 to ScreenTimeBand.Medium1,
-            239 to ScreenTimeBand.Medium1,
-            240 to ScreenTimeBand.Medium2,
-            299 to ScreenTimeBand.Medium2,
-            300 to ScreenTimeBand.Medium3,
-            359 to ScreenTimeBand.Medium3,
+            270 to ScreenTimeBand.Medium1,
+            271 to ScreenTimeBand.Medium2,
+            359 to ScreenTimeBand.Medium2,
             360 to ScreenTimeBand.High
         )
 

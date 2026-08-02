@@ -64,7 +64,7 @@ object AssignmentRepository {
             priority = draft.priority,
             isCompleted = isCompleted
         )
-        require(assignment.title.isNotBlank()) { "Enter an assignment title." }
+        require(assignment.title.isNotBlank()) { "Enter a task to be done." }
         require(assignment.deadlineDate.isNotBlank()) { "Select a deadline." }
 
         SupabaseProvider.client.from("assignments").upsert(assignment) {

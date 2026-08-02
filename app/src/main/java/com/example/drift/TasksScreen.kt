@@ -267,7 +267,7 @@ fun TasksScreen(
     deleteCandidate?.let { assignment ->
         AlertDialog(
             onDismissRequest = { deleteCandidate = null },
-            title = { Text("Delete assignment?") },
+            title = { Text("Delete task?") },
             text = { Text("“${assignment.title}” will be permanently removed.") },
             confirmButton = {
                 TextButton(
@@ -436,7 +436,7 @@ private fun EmptyAssignments(selectedTab: String, onAdd: () -> Unit) {
         Text(
             when (selectedTab) {
                 "Completed" -> "No tasks completed yet"
-                "All" -> "No assignments yet."
+                "All" -> "No tasks yet."
                 else -> "Nothing due right now."
             },
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -445,7 +445,7 @@ private fun EmptyAssignments(selectedTab: String, onAdd: () -> Unit) {
         )
         if (selectedTab != "Completed") {
             Spacer(Modifier.height(12.dp))
-            TextButton(onClick = onAdd) { Text("Add your first assignment") }
+            TextButton(onClick = onAdd) { Text("Add your first task") }
         }
     }
 }
@@ -500,7 +500,7 @@ private fun AssignmentEditorDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                if (assignment == null) "Add assignment" else "Edit assignment",
+                if (assignment == null) "Add task" else "Edit task",
                 fontWeight = FontWeight.Bold
             )
         },
@@ -509,7 +509,7 @@ private fun AssignmentEditorDialog(
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it.take(200) },
-                    label = { Text("Assignment title *") },
+                    label = { Text("Task to be done *") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -697,7 +697,7 @@ private fun AssignmentCalendarDialog(
         onDismissRequest = onDismiss,
         title = {
             Column {
-                Text("Assignment calendar", fontWeight = FontWeight.SemiBold)
+                Text("To-do calendar", fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(6.dp))
                 Row(
                     Modifier.fillMaxWidth(),
@@ -790,7 +790,7 @@ private fun AssignmentCalendarDialog(
                 Spacer(Modifier.height(8.dp))
                 if (assignments.isEmpty()) {
                     Text(
-                        "No upcoming assignments.",
+                        "No upcoming tasks.",
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -873,11 +873,11 @@ private fun assignmentError(error: Throwable): String {
     val message = error.message.orEmpty()
     return when {
         "assignments" in message && ("schema cache" in message || "PGRST205" in message) ->
-            "Assignments are temporarily unavailable. Please try again shortly."
+            "Tasks are temporarily unavailable. Please try again shortly."
         "session" in message.lowercase() ->
             "Your session expired. Please log in again."
         "network" in message.lowercase() || "unable to resolve" in message.lowercase() ->
             "We couldn’t reach Drift. Check your connection and try again."
-        else -> "We couldn’t save your assignments. Please try again."
+        else -> "We couldn’t save your tasks. Please try again."
     }
 }
