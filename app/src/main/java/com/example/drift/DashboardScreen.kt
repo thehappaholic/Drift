@@ -19,6 +19,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
@@ -149,7 +150,11 @@ fun DashboardScreen(
                 onNext = { if (selectedUsageDate < LocalDate.now()) selectedUsageDate = selectedUsageDate.plusDays(1) }
             )
             Spacer(Modifier.height(9.dp))
-            HourlyUsageChart(displayedUsage)
+            HourlyUsageChart(
+                displayedUsage,
+                completedFocusMinutes = focusStreakStats.recentDays
+                    .firstOrNull { it.date == displayedUsage.date }?.focusedMinutes
+            )
             Spacer(Modifier.height(25.dp))
             SectionTitle("MOST USED", "View all apps", onUsageHistoryClick)
             Spacer(Modifier.height(9.dp))
@@ -316,9 +321,17 @@ private fun ScreenTimeChart(history: List<DailyUsageHistory>) {
 }
 
 @Composable
-private fun HourlyUsageChart(day: DailyUsageHistory) {
+private fun HourlyUsageChart(day: DailyUsageHistory, completedFocusMinutes: Int? = null) {
     val hours = day.hourlyMinutes.takeIf { it.size == 24 } ?: List(24) { 0 }
-    val maximum = hours.maxOrNull()?.coerceAtLeast(1) ?: 1
+    val focusHours = (day.intentionalFocusHourlyMinutes.takeIf { it.size == 24 } ?: List(24) { 0 }).toMutableList()
+    if (day.date == LocalDate.now() && completedFocusMinutes != null) {
+        val missing = (completedFocusMinutes - focusHours.sum()).coerceAtLeast(0)
+        if (missing > 0) {
+            val hour = focusHours.indexOfLast { it > 0 }.takeIf { it >= 0 } ?: LocalTime.now().hour
+            focusHours[hour] += missing
+        }
+    }
+    val maximum = hours.indices.maxOfOrNull { hours[it] + focusHours[it] }?.coerceAtLeast(1) ?: 1
     Column(
         Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, HomeShape)
             .border(1.dp, MaterialTheme.colorScheme.outline, HomeShape).padding(16.dp)
@@ -341,13 +354,25 @@ private fun HourlyUsageChart(day: DailyUsageHistory) {
         }
         Spacer(Modifier.height(16.dp))
         Row(Modifier.fillMaxWidth().height(92.dp), Arrangement.spacedBy(3.dp), Alignment.Bottom) {
-            hours.forEach { minutes ->
-                Box(
-                    Modifier.weight(1f)
-                        .height(if (minutes == 0) 3.dp else (8f + minutes / maximum.toFloat() * 76f).dp)
-                        .clip(RoundedCornerShape(4.dp, 4.dp, 2.dp, 2.dp))
-                        .background(if (minutes == 0) MaterialTheme.colorScheme.outlineVariant else screenTimePalette(day.totalMinutes).background)
-                )
+            hours.forEachIndexed { index, minutes ->
+                val focusMinutes = focusHours[index]
+                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                    if (focusMinutes == 0 && minutes == 0) {
+                        Box(Modifier.fillMaxWidth().height(3.dp).background(MaterialTheme.colorScheme.outlineVariant))
+                    } else {
+                        if (focusMinutes > 0) {
+                            Box(Modifier.fillMaxWidth()
+                                .height((focusMinutes / maximum.toFloat() * 78f).coerceAtLeast(3f).dp)
+                                .clip(RoundedCornerShape(4.dp, 4.dp, 1.dp, 1.dp)).background(DriftLilac))
+                        }
+                        if (minutes > 0) {
+                            Box(Modifier.fillMaxWidth()
+                                .height((minutes / maximum.toFloat() * 78f).coerceAtLeast(3f).dp)
+                                .clip(RoundedCornerShape(1.dp, 1.dp, 2.dp, 2.dp))
+                                .background(screenTimePalette(day.totalMinutes).background))
+                        }
+                    }
+                }
             }
         }
         Spacer(Modifier.height(7.dp))
@@ -359,6 +384,22 @@ private fun HourlyUsageChart(day: DailyUsageHistory) {
         Spacer(Modifier.height(10.dp))
         Text("Hourly mobile screen usage", style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
+        val displayedFocusMinutes = maxOf(day.intentionalFocusMinutes, completedFocusMinutes ?: 0)
+        if (displayedFocusMinutes > 0) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "${formatGraphDuration(displayedFocusMinutes)} verified focus shown separately",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+        Spacer(Modifier.height(5.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            Text("■ Attention usage", style = MaterialTheme.typography.labelSmall,
+                color = riskAccentColor(screenTimePalette(day.totalMinutes)))
+            Text("■ Drift focus", style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary)
+        }
     }
 }
 
@@ -415,6 +456,7 @@ private fun UsageBreakdown(
     appBudgets: Map<String, Int>
 ) {
     val apps = appUsage.take(5)
+    var expandedPackage by remember(appUsage) { mutableStateOf<String?>(null) }
     val whitelistedApps = setOf("WhatsApp", "Phone", "YouTube Music", "Spotify")
     Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, HomeShape).border(1.dp, MaterialTheme.colorScheme.outline, HomeShape).padding(16.dp)) {
         if (apps.isEmpty()) {
@@ -436,17 +478,31 @@ private fun UsageBreakdown(
             } else {
                 screenTimePalette(usedMinutes)
             }
-            Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
+            Row(
+                Modifier.fillMaxWidth().clickable {
+                    expandedPackage = if (expandedPackage == app.packageName) null else app.packageName
+                },
+                Arrangement.SpaceBetween,
+                Alignment.CenterVertically
+            ) {
                 Text(app.appName, style = MaterialTheme.typography.bodyMedium)
-                Text(
-                    when {
-                        whitelisted -> "${formatAppUsageDuration(app.foregroundMillis)} · Whitelisted"
-                        limit != null -> "${formatAppUsageDuration(app.foregroundMillis)} / ${limit}m"
-                        else -> formatAppUsageDuration(app.foregroundMillis)
-                    },
-                    style = MaterialTheme.typography.labelLarge,
-                    color = riskAccentColor(palette)
-                )
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    Text(
+                        when {
+                            whitelisted -> "${formatAppUsageDuration(app.foregroundMillis)} · Whitelisted"
+                            limit != null -> "${formatAppUsageDuration(app.foregroundMillis)} / ${limit}m"
+                            else -> formatAppUsageDuration(app.foregroundMillis)
+                        },
+                        style = MaterialTheme.typography.labelLarge,
+                        color = riskAccentColor(palette)
+                    )
+                    Icon(
+                        painter = painterResource(R.drawable.ic_app_expand),
+                        contentDescription = if (expandedPackage == app.packageName) "Hide hourly pattern" else "Show hourly pattern",
+                        tint = riskAccentColor(palette),
+                        modifier = Modifier.size(18.dp).rotate(if (expandedPackage == app.packageName) 180f else 0f)
+                    )
+                }
             }
             Spacer(Modifier.height(7.dp))
             LinearProgressIndicator(
@@ -474,6 +530,9 @@ private fun UsageBreakdown(
                         color = riskAccentColor(palette),
                         modifier = Modifier.align(Alignment.End)
                     )
+            }
+            if (expandedPackage == app.packageName) {
+                AppHourlyUsageChart(app, palette.background)
             }
             if (index < apps.lastIndex) Spacer(Modifier.height(14.dp))
         }
@@ -565,7 +624,7 @@ private fun TaskSummaryRow(title: String, deadline: String, priority: String) {
             Text(deadline, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Text(priority, style = MaterialTheme.typography.labelSmall, color = palette.foreground,
-            modifier = Modifier.background(palette.background, RoundedCornerShape(7.dp)).padding(horizontal = 8.dp, vertical = 5.dp))
+            modifier = Modifier.background(palette.background, RoundedCornerShape(50)).padding(horizontal = 10.dp, vertical = 5.dp))
     }
 }
 

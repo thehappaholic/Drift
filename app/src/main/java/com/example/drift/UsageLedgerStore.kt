@@ -38,7 +38,10 @@ internal class UsageLedgerStore(context: Context) {
             val apps = buildList {
                 for (index in 0 until appsJson.length()) {
                     val app = appsJson.getJSONObject(index)
-                    add(AppUsageEntry(app.getString("package"), app.getString("name"), app.getLong("millis")))
+                    val hourly = app.optJSONArray("hourly")?.let { values ->
+                        (0 until values.length()).map(values::optLong)
+                    }.orEmpty()
+                    add(AppUsageEntry(app.getString("package"), app.getString("name"), app.getLong("millis"), hourly))
                 }
             }
             DailyUsageHistory(
@@ -47,6 +50,10 @@ internal class UsageLedgerStore(context: Context) {
                 unlockCount = root.optInt("unlocks"),
                 lateNightMinutes = root.optInt("lateNight"),
                 hourlyMinutes = root.optJSONArray("hourly")?.let { hourly ->
+                    (0 until hourly.length()).map(hourly::optInt)
+                }.orEmpty(),
+                intentionalFocusMinutes = root.optInt("intentionalFocus"),
+                intentionalFocusHourlyMinutes = root.optJSONArray("focusHourly")?.let { hourly ->
                     (0 until hourly.length()).map(hourly::optInt)
                 }.orEmpty(),
                 availability = if (root.optBoolean("finalized")) UsageDataAvailability.Collected
@@ -58,13 +65,16 @@ internal class UsageLedgerStore(context: Context) {
     fun write(day: DailyUsageHistory, finalized: Boolean) {
         val apps = JSONArray()
         day.apps.forEach { entry ->
-            apps.put(JSONObject().put("package", entry.packageName).put("name", entry.appName).put("millis", entry.foregroundMillis))
+            apps.put(JSONObject().put("package", entry.packageName).put("name", entry.appName)
+                .put("millis", entry.foregroundMillis).put("hourly", JSONArray(entry.hourlyMillis)))
         }
         val root = JSONObject()
             .put("apps", apps)
             .put("unlocks", day.unlockCount)
             .put("lateNight", day.lateNightMinutes)
             .put("hourly", JSONArray(day.hourlyMinutes))
+            .put("intentionalFocus", day.intentionalFocusMinutes)
+            .put("focusHourly", JSONArray(day.intentionalFocusHourlyMinutes))
             .put("finalized", finalized)
             .put("updatedAt", System.currentTimeMillis())
         preferences.edit().putString(dayKey(day.date), root.toString()).apply()

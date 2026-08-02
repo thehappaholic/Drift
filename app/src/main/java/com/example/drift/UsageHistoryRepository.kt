@@ -13,7 +13,8 @@ import java.time.ZoneId
 data class AppUsageEntry(
     val packageName: String,
     val appName: String,
-    val foregroundMillis: Long
+    val foregroundMillis: Long,
+    val hourlyMillis: List<Long> = emptyList()
 ) {
     val foregroundMinutes: Int get() = (foregroundMillis / 60_000L).toInt()
 }
@@ -24,6 +25,8 @@ data class DailyUsageHistory(
     val unlockCount: Int = 0,
     val lateNightMinutes: Int = 0,
     val hourlyMinutes: List<Int> = emptyList(),
+    val intentionalFocusMinutes: Int = 0,
+    val intentionalFocusHourlyMinutes: List<Int> = emptyList(),
     val availability: UsageDataAvailability = UsageDataAvailability.Collected
 ) {
     val totalMinutes: Int
@@ -107,6 +110,12 @@ object UsageHistoryRepository {
         return loadRecentDays(context, 7, today)
     }
 
+    fun loadSevenDaysEnding(context: Context, endDate: LocalDate): List<DailyUsageHistory> {
+        if (!hasUsageAccess(context) || endDate.isAfter(LocalDate.now())) return emptyList()
+        refreshLedger(context, LocalDate.now())
+        return readDaysEnding(context, 7, endDate)
+    }
+
     fun loadRecentDays(
         context: Context,
         dayCount: Int,
@@ -114,10 +123,18 @@ object UsageHistoryRepository {
     ): List<DailyUsageHistory> {
         if (!hasUsageAccess(context)) return emptyList()
         refreshLedger(context, today)
+        return readDaysEnding(context, dayCount, today)
+    }
+
+    private fun readDaysEnding(
+        context: Context,
+        dayCount: Int,
+        endDate: LocalDate
+    ): List<DailyUsageHistory> {
         val ledger = UsageLedgerStore(context)
         val trackingStart = ledger.trackingStartDate
         return ((dayCount - 1).toLong() downTo 0L).map { offset ->
-            val date = today.minusDays(offset)
+            val date = endDate.minusDays(offset)
             ledger.read(date) ?: DailyUsageHistory(
                 date = date,
                 apps = emptyList(),
@@ -198,21 +215,58 @@ object UsageHistoryRepository {
                 }
             }
 
-            val durations = calculateForegroundDurations(timeline, start, end)
-            val hourlyMinutes = (0 until 24).map { hour ->
+            val verifiedFocusIntervals = FocusSessionIntervalStore(context).intervalsFor(date, zone)
+            val durations = calculateAdjustedForegroundDurations(
+                timeline, start, end, context.packageName, verifiedFocusIntervals
+            ).toMutableMap()
+            val hourlyDurations = (0 until 24).map { hour ->
                 val hourStart = date.atTime(hour, 0).atZone(zone).toInstant().toEpochMilli()
                 val hourEnd = minOf(hourStart + 60 * 60 * 1000L, end)
-                if (hourEnd <= hourStart) 0 else {
-                    (calculateForegroundDurations(timeline, hourStart, hourEnd).values.sum() / 60_000L).toInt()
-                }
+                if (hourEnd <= hourStart) emptyMap() else {
+                    calculateAdjustedForegroundDurations(
+                        timeline, hourStart, hourEnd, context.packageName, verifiedFocusIntervals
+                    )
+                }.toMutableMap()
             }
-            val morningEnd = date.atTime(6, 0).atZone(zone).toInstant().toEpochMilli()
-            val eveningStart = date.atTime(22, 0).atZone(zone).toInstant().toEpochMilli()
-            val lateNightMillis =
-                calculateForegroundDurations(timeline, start, minOf(morningEnd, end)).values.sum() +
-                    if (end > eveningStart) {
-                        calculateForegroundDurations(timeline, eveningStart, end).values.sum()
-                    } else 0L
+            val intentionalFocusHourlyMillis = (0 until 24).map { hour ->
+                val hourStart = date.atTime(hour, 0).atZone(zone).toInstant().toEpochMilli()
+                val hourEnd = minOf(hourStart + 60 * 60 * 1000L, end)
+                verifiedFocusIntervals.sumOf { interval ->
+                    (minOf(interval.endMillis, hourEnd) - maxOf(interval.startMillis, hourStart))
+                        .coerceAtLeast(0L)
+                }
+            }.toMutableList()
+            val intervalFocusMillis = verifiedFocusIntervals.sumOf { interval ->
+                (minOf(interval.endMillis, end) - maxOf(interval.startMillis, start)).coerceAtLeast(0L)
+            }
+            val completedFocusMillis = FocusStreakStore(
+                context.getSharedPreferences("focus_streak", Context.MODE_PRIVATE)
+            ).minutesFor(date) * 60_000L
+            var missingLegacyFocusMillis = (completedFocusMillis - intervalFocusMillis).coerceAtLeast(0L)
+            hourlyDurations.indices
+                .sortedByDescending { hourlyDurations[it][context.packageName] ?: 0L }
+                .forEach { hour ->
+                    if (missingLegacyFocusMillis <= 0L) return@forEach
+                    val driftMillis = hourlyDurations[hour][context.packageName] ?: 0L
+                    val matched = minOf(driftMillis, missingLegacyFocusMillis)
+                    if (matched > 0L) {
+                        val remaining = driftMillis - matched
+                        if (remaining > 0L) hourlyDurations[hour][context.packageName] = remaining
+                        else hourlyDurations[hour].remove(context.packageName)
+                        val dailyRemaining = (durations[context.packageName] ?: 0L) - matched
+                        if (dailyRemaining > 0L) durations[context.packageName] = dailyRemaining
+                        else durations.remove(context.packageName)
+                        intentionalFocusHourlyMillis[hour] += matched
+                        missingLegacyFocusMillis -= matched
+                    }
+                }
+            val hourlyMinutes = hourlyDurations.map { durationsByApp ->
+                (durationsByApp.values.sum() / 60_000L).toInt()
+            }
+            val intentionalFocusHourlyMinutes = intentionalFocusHourlyMillis.map { (it / 60_000L).toInt() }
+            val lateNightMillis = hourlyDurations.filterIndexed { hour, _ -> hour < 6 || hour >= 22 }
+                .sumOf { it.values.sum() }
+            val intentionalFocusMillis = maxOf(intervalFocusMillis, completedFocusMillis)
             val apps = durations
                 .asSequence()
                 .filter { (packageName, millis) ->
@@ -224,7 +278,12 @@ object UsageHistoryRepository {
                             .loadLabel(packageManager)
                             .toString()
                     }.getOrDefault(packageName)
-                    AppUsageEntry(packageName, label, millis)
+                    AppUsageEntry(
+                        packageName,
+                        label,
+                        millis,
+                        hourlyDurations.map { it[packageName] ?: 0L }
+                    )
                 }
                 .sortedByDescending(AppUsageEntry::foregroundMillis)
                 .toList()
@@ -234,6 +293,8 @@ object UsageHistoryRepository {
             unlockCount = unlockCount,
             lateNightMinutes = (lateNightMillis / 60_000L).toInt(),
             hourlyMinutes = hourlyMinutes,
+            intentionalFocusMinutes = (intentionalFocusMillis / 60_000L).toInt(),
+            intentionalFocusHourlyMinutes = intentionalFocusHourlyMinutes,
             availability = if (date == LocalDate.now()) UsageDataAvailability.Partial else UsageDataAvailability.Collected
         )
     }

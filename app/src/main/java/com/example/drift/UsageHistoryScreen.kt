@@ -25,6 +25,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -35,14 +37,18 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
@@ -58,19 +64,26 @@ fun UsageHistoryScreen(onBack: () -> Unit) {
     var history by remember { mutableStateOf<List<DailyUsageHistory>>(emptyList()) }
     var loading by remember { mutableStateOf(hasAccess) }
     var selectedDate by remember { mutableStateOf(LocalDate.now()) }
+    var previousWeekCount by remember { mutableIntStateOf(0) }
+    var expandedPackage by remember(selectedDate) { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
     val settingsLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) {
         refreshKey++
     }
 
-    LaunchedEffect(refreshKey) {
+    LaunchedEffect(refreshKey, previousWeekCount) {
         hasAccess = UsageHistoryRepository.hasUsageAccess(context)
         if (hasAccess) {
             loading = true
             history = withContext(Dispatchers.IO) {
-                UsageHistoryRepository.loadLastSevenDays(context)
+                UsageHistoryRepository.loadSevenDaysEnding(
+                    context,
+                    LocalDate.now().minusDays(previousWeekCount * 7L)
+                )
             }
+            history.lastOrNull()?.let { selectedDate = it.date }
             loading = false
         }
     }
@@ -153,7 +166,36 @@ fun UsageHistoryScreen(onBack: () -> Unit) {
                 }
 
                 Spacer(Modifier.height(18.dp))
-                Text("Last 7 days", style = MaterialTheme.typography.titleMedium)
+                Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+                    IconButton(onClick = { previousWeekCount++ }, modifier = Modifier.size(34.dp)) {
+                        Text("‹", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
+                    }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            if (previousWeekCount == 0) "Last 7 days" else "Previous week",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        if (history.isNotEmpty()) {
+                            Text(
+                                "${history.first().date.format(DateTimeFormatter.ofPattern("d MMM"))} – ${history.last().date.format(DateTimeFormatter.ofPattern("d MMM"))}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    IconButton(
+                        onClick = { if (previousWeekCount > 0) previousWeekCount-- },
+                        enabled = previousWeekCount > 0,
+                        modifier = Modifier.size(34.dp)
+                    ) {
+                        Text(
+                            "›",
+                            style = MaterialTheme.typography.titleLarge,
+                            color = if (previousWeekCount > 0) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.outlineVariant
+                        )
+                    }
+                }
                 Spacer(Modifier.height(10.dp))
                 Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
                     history.forEach { day ->
@@ -212,19 +254,49 @@ fun UsageHistoryScreen(onBack: () -> Unit) {
                     } else {
                         val longest = selected.apps.maxOf(AppUsageEntry::foregroundMinutes).coerceAtLeast(1)
                         selected.apps.forEachIndexed { index, app ->
+                            val appPalette = screenTimePalette(app.foregroundMinutes)
                             Column(Modifier.padding(vertical = 12.dp)) {
-                                Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
+                                Row(
+                                    Modifier.fillMaxWidth().clickable {
+                                        val opening = expandedPackage != app.packageName
+                                        expandedPackage = if (opening) app.packageName else null
+                                        if (opening && app.hourlyMillis.size != 24) {
+                                            scope.launch {
+                                                val refreshed = withContext(Dispatchers.IO) {
+                                                    UsageHistoryRepository.loadDay(context, selected.date)
+                                                }
+                                                if (refreshed != null) {
+                                                    history = history.map { if (it.date == refreshed.date) refreshed else it }
+                                                }
+                                            }
+                                        }
+                                    },
+                                    Arrangement.SpaceBetween,
+                                    Alignment.CenterVertically
+                                ) {
                                     Text(app.appName, style = MaterialTheme.typography.bodyMedium)
-                                    Text(formatUsageMinutes(app.foregroundMinutes), style = MaterialTheme.typography.labelLarge)
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                                        Text(formatUsageMinutes(app.foregroundMinutes), style = MaterialTheme.typography.labelLarge,
+                                            color = riskAccentColor(appPalette))
+                                        Icon(
+                                            painter = painterResource(R.drawable.ic_app_expand),
+                                            contentDescription = if (expandedPackage == app.packageName) "Hide hourly pattern" else "Show hourly pattern",
+                                            tint = riskAccentColor(appPalette),
+                                            modifier = Modifier.size(18.dp).rotate(if (expandedPackage == app.packageName) 180f else 0f)
+                                        )
+                                    }
                                 }
                                 Spacer(Modifier.height(7.dp))
                                 LinearProgressIndicator(
                                     progress = { app.foregroundMinutes / longest.toFloat() },
                                     modifier = Modifier.fillMaxWidth().height(5.dp),
-                                    color = MaterialTheme.colorScheme.primary,
+                                    color = appPalette.background,
                                     trackColor = MaterialTheme.colorScheme.surfaceVariant,
                                     drawStopIndicator = {}
                                 )
+                                if (expandedPackage == app.packageName) {
+                                    AppHourlyUsageChart(app, appPalette.background)
+                                }
                             }
                             if (index < selected.apps.lastIndex) {
                                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)

@@ -106,6 +106,7 @@ class MainActivity : ComponentActivity() {
             val focusStreakStore = remember {
                 FocusStreakStore(getSharedPreferences("focus_streak", MODE_PRIVATE))
             }
+            val focusSessionIntervalStore = remember { FocusSessionIntervalStore(this) }
             var darkMode by remember { mutableStateOf(appearancePreferences.getBoolean("dark_mode", false)) }
             DriftTheme(darkTheme = darkMode) {
                 // The platform-backed ripple can crash on some Samsung devices when a
@@ -126,6 +127,7 @@ class MainActivity : ComponentActivity() {
                     var lastBreakSeconds by remember { mutableStateOf(0) }
                     var focusRemainingSeconds by remember { mutableStateOf(40 * 60) }
                     var focusSessionStarted by remember { mutableStateOf(false) }
+                    var focusSessionStartedAtMillis by remember { mutableStateOf<Long?>(null) }
                     var focusStreakStats by remember { mutableStateOf(focusStreakStore.load()) }
                     var pendingVerificationEmail by remember { mutableStateOf("") }
                     var signupVerificationRequired by remember { mutableStateOf(false) }
@@ -455,9 +457,10 @@ class MainActivity : ComponentActivity() {
                                 "YouTube" to youtubeBudget,
                                 "Chrome" to browserBudget
                             ) + additionalBudgets,
-                            onFocusClick = {
-                                focusRemainingSeconds = 40 * 60
-                                focusSessionStarted = false
+                             onFocusClick = {
+                                 focusRemainingSeconds = 40 * 60
+                                 focusSessionStarted = false
+                                 focusSessionStartedAtMillis = null
                                 currentScreen = "focus_timer"
                             },
                             onFocusScoreClick = {
@@ -558,7 +561,8 @@ class MainActivity : ComponentActivity() {
                             onBack = { currentScreen = "dashboard" },
                             onStartFocus = {
                                 focusRemainingSeconds = 40 * 60
-                                focusSessionStarted = true
+                                 focusSessionStarted = true
+                                 focusSessionStartedAtMillis = System.currentTimeMillis()
                                 lastFocusSeconds = 0
                                 lastBreakSeconds = 0
                                 currentScreen = "focus_timer"
@@ -566,14 +570,16 @@ class MainActivity : ComponentActivity() {
                         )
 
                         "focus_timer" -> FocusTimerScreen(
-                            onBack = {
-                                focusRemainingSeconds = 40 * 60
-                                focusSessionStarted = false
+                             onBack = {
+                                 focusRemainingSeconds = 40 * 60
+                                 focusSessionStarted = false
+                                 focusSessionStartedAtMillis = null
                                 currentScreen = "dashboard"
                             },
                             sessionStarted = focusSessionStarted,
-                            onStartSession = {
-                                focusSessionStarted = true
+                             onStartSession = {
+                                 focusSessionStarted = true
+                                 focusSessionStartedAtMillis = System.currentTimeMillis()
                                 lastFocusSeconds = 0
                                 lastBreakSeconds = 0
                             },
@@ -583,8 +589,18 @@ class MainActivity : ComponentActivity() {
                                 lastFocusSeconds = elapsedSeconds
                                 currentScreen = "break_timer"
                             },
-                            onSessionComplete = {
-                                lastFocusSeconds = 40 * 60
+                            onFocusRunningChanged = { running ->
+                                if (running) focusSessionIntervalStore.start()
+                                else focusSessionIntervalStore.stop()
+                            },
+                             onSessionComplete = {
+                                 lastFocusSeconds = 40 * 60
+                                 focusSessionIntervalStore.finalizeCompletedSession(
+                                     sessionStartMillis = focusSessionStartedAtMillis
+                                         ?: (System.currentTimeMillis() - lastFocusSeconds * 1_000L),
+                                     focusedSeconds = lastFocusSeconds
+                                 )
+                                 focusSessionStartedAtMillis = null
                                 focusSessionStarted = false
                                 focusStreakStats =
                                     focusStreakStore.recordCompletedFocus(lastFocusSeconds)

@@ -1,5 +1,9 @@
 package com.example.drift
 
+import android.media.AudioManager
+import android.media.ToneGenerator
+import android.os.Handler
+import android.os.Looper
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.LinearEasing
@@ -37,6 +41,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -75,15 +80,17 @@ fun FocusTimerScreen(
     remainingSeconds: Int,
     onRemainingSecondsChange: (Int) -> Unit,
     onTakeBreak: (Int) -> Unit,
+    onFocusRunningChanged: (Boolean) -> Unit,
     onSessionComplete: () -> Unit
 ) {
     val sessionLengthSeconds = 40 * 60
     var paused by remember { mutableStateOf(false) }
     var showEarlyBreakMessage by remember { mutableStateOf(false) }
     var showEndConfirmation by remember { mutableStateOf(false) }
+    var showSessionEnded by remember { mutableStateOf(false) }
     var showProtectionInfo by remember { mutableStateOf(false) }
     var sessionGoal by remember { mutableStateOf<Assignment?>(null) }
-    val timerPaused = !sessionStarted || paused || showEndConfirmation
+    val timerPaused = !sessionStarted || paused || showEndConfirmation || showSessionEnded
 
     BackHandler {
         if (sessionStarted) showEndConfirmation = true else onBack()
@@ -97,6 +104,7 @@ fun FocusTimerScreen(
     }
 
     LaunchedEffect(timerPaused, remainingSeconds) {
+        onFocusRunningChanged(!timerPaused && remainingSeconds > 0)
         if (!timerPaused && remainingSeconds > 0) {
             delay(1000)
             onRemainingSecondsChange(remainingSeconds - 1)
@@ -104,7 +112,14 @@ fun FocusTimerScreen(
     }
 
     LaunchedEffect(remainingSeconds) {
-        if (sessionStarted && remainingSeconds == 0) onSessionComplete()
+        if (sessionStarted && remainingSeconds == 0) {
+            onFocusRunningChanged(false)
+            onSessionComplete()
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose { onFocusRunningChanged(false) }
     }
 
     val minutes = remainingSeconds / 60
@@ -126,7 +141,10 @@ fun FocusTimerScreen(
                     Button(
                         onClick = {
                             val elapsed = sessionLengthSeconds - remainingSeconds
-                            if (elapsed >= 10 * 60) onTakeBreak(elapsed)
+                            if (elapsed >= 10 * 60) {
+                                onFocusRunningChanged(false)
+                                onTakeBreak(elapsed)
+                            }
                             else showEarlyBreakMessage = true
                         },
                         modifier = Modifier
@@ -319,7 +337,10 @@ fun FocusTimerScreen(
                     Box(
                         modifier = Modifier
                             .size(48.dp)
-                            .clickable { paused = !paused }
+                            .clickable {
+                                paused = !paused
+                                onFocusRunningChanged(!paused)
+                            }
                             .border(
                                 2.dp,
                                 MaterialTheme.colorScheme.primary,
@@ -377,7 +398,9 @@ fun FocusTimerScreen(
                 TextButton(
                     onClick = {
                         showEndConfirmation = false
-                        onBack()
+                        onFocusRunningChanged(false)
+                        playEndSessionSound()
+                        showSessionEnded = true
                     }
                 ) {
                     Text("End session")
@@ -387,6 +410,24 @@ fun FocusTimerScreen(
                 TextButton(onClick = { showEndConfirmation = false }) {
                     Text("Keep focusing")
                 }
+            }
+        )
+    }
+
+    if (showSessionEnded) {
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text("Session ended") },
+            text = {
+                Text("Your verified focus time has been saved. You can begin another session whenever you’re ready.")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showSessionEnded = false
+                        onBack()
+                    }
+                ) { Text("Return home") }
             }
         )
     }
@@ -437,6 +478,17 @@ fun FocusTimerScreen(
             }
         )
     }
+}
+
+private fun playEndSessionSound() {
+    val tone = runCatching {
+        ToneGenerator(AudioManager.STREAM_NOTIFICATION, 35)
+    }.getOrNull() ?: return
+    if (!tone.startTone(ToneGenerator.TONE_PROP_BEEP2, 220)) {
+        tone.release()
+        return
+    }
+    Handler(Looper.getMainLooper()).postDelayed({ tone.release() }, 280L)
 }
 
 private fun Assignment.deadlineCountdown(now: LocalDateTime = LocalDateTime.now()): String {

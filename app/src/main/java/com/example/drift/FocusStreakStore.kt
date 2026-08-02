@@ -21,6 +21,8 @@ data class FocusStreakStats(
 )
 
 class FocusStreakStore(private val preferences: SharedPreferences) {
+    fun minutesFor(date: LocalDate): Int = readHistory()[date] ?: 0
+
     fun recordCompletedFocus(focusedSeconds: Int, today: LocalDate = LocalDate.now()): FocusStreakStats {
         val minutes = (focusedSeconds / 60).coerceAtLeast(0)
         if (minutes > 0) {

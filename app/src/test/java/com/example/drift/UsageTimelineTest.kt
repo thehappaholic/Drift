@@ -99,6 +99,38 @@ class UsageTimelineTest {
         assertEquals(30L, result["a"])
     }
 
+    @Test
+    fun `verified focus removes only overlapping Drift foreground time`() {
+        val result = calculateAdjustedForegroundDurations(
+            events = listOf(
+                event(0, "com.example.drift", UsageTimelineEventType.Resumed),
+                event(100, "com.example.drift", UsageTimelineEventType.Paused)
+            ),
+            rangeStart = 0,
+            rangeEnd = 100,
+            driftPackageName = "com.example.drift",
+            verifiedFocusIntervals = listOf(FocusSessionInterval(20, 80))
+        )
+
+        assertEquals(40L, result["com.example.drift"])
+    }
+
+    @Test
+    fun `verified focus never removes another app usage`() {
+        val result = calculateAdjustedForegroundDurations(
+            events = listOf(
+                event(0, "video", UsageTimelineEventType.Resumed),
+                event(100, "video", UsageTimelineEventType.Paused)
+            ),
+            rangeStart = 0,
+            rangeEnd = 100,
+            driftPackageName = "com.example.drift",
+            verifiedFocusIntervals = listOf(FocusSessionInterval(20, 80))
+        )
+
+        assertEquals(100L, result["video"])
+    }
+
     private fun event(time: Long, packageName: String?, type: UsageTimelineEventType) =
         UsageTimelineEvent(time, packageName, type)
 }
