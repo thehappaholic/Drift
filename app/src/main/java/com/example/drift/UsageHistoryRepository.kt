@@ -27,10 +27,29 @@ data class DailyUsageHistory(
     val hourlyMinutes: List<Int> = emptyList(),
     val intentionalFocusMinutes: Int = 0,
     val intentionalFocusHourlyMinutes: List<Int> = emptyList(),
+    val attentionMillis: Long? = null,
     val availability: UsageDataAvailability = UsageDataAvailability.Collected
 ) {
-    val totalMinutes: Int
+    val driftForegroundMinutes: Int
+        get() = ((apps.firstOrNull { it.packageName == "com.example.drift" }?.foregroundMillis ?: 0L) / 60_000L).toInt()
+
+    val deviceScreenMinutes: Int
         get() = (apps.sumOf(AppUsageEntry::foregroundMillis) / 60_000L).toInt()
+
+    val attentionMinutes: Int
+        get() = ((attentionMillis ?: apps.sumOf(AppUsageEntry::foregroundMillis)) / 60_000L).toInt()
+
+    val focusOverlapMinutes: Int
+        get() {
+            val drift = apps.firstOrNull { it.packageName == "com.example.drift" } ?: return 0
+            if (drift.hourlyMillis.size != 24 || intentionalFocusHourlyMinutes.size != 24) return 0
+            return (drift.hourlyMillis.indices.sumOf { hour ->
+                minOf(drift.hourlyMillis[hour], intentionalFocusHourlyMinutes[hour] * 60_000L)
+            } / 60_000L).toInt()
+        }
+
+    val totalMinutes: Int
+        get() = attentionMinutes
 }
 
 enum class UsageDataAvailability { Collected, Partial, Unavailable }
@@ -47,8 +66,12 @@ enum class UsageTimelineEventType {
 data class UsageTimelineEvent(
     val timestamp: Long,
     val packageName: String?,
-    val type: UsageTimelineEventType
+    val type: UsageTimelineEventType,
+    val instanceId: Int? = null
 )
+
+fun calculateAttentionMillis(deviceForegroundMillis: Long, mindfulDriftMillis: Long): Long =
+    (deviceForegroundMillis - mindfulDriftMillis).coerceAtLeast(0L)
 
 /**
  * Reconstructs one foreground timeline instead of summing UsageStats buckets,
@@ -61,6 +84,7 @@ fun calculateForegroundDurations(
 ): Map<String, Long> {
     if (rangeEnd <= rangeStart) return emptyMap()
     val durations = mutableMapOf<String, Long>()
+    val resumedInstances = mutableMapOf<String, MutableSet<Int>>()
     var activePackage: String? = null
     var activeSince = rangeStart
 
@@ -72,6 +96,7 @@ fun calculateForegroundDurations(
             durations[packageName] =
                 (durations[packageName] ?: 0L) + (clippedEnd - clippedStart)
         }
+        resumedInstances.remove(packageName)
         activePackage = null
     }
 
@@ -80,6 +105,7 @@ fun calculateForegroundDurations(
         when (event.type) {
             UsageTimelineEventType.Resumed -> {
                 val packageName = event.packageName ?: return@forEach
+                event.instanceId?.let { resumedInstances.getOrPut(packageName, ::mutableSetOf).add(it) }
                 if (activePackage != packageName) {
                     closeActive(event.timestamp)
                     activePackage = packageName
@@ -87,7 +113,10 @@ fun calculateForegroundDurations(
                 }
             }
             UsageTimelineEventType.Paused -> {
-                if (activePackage == event.packageName) closeActive(event.timestamp)
+                val packageName = event.packageName ?: return@forEach
+                event.instanceId?.let { resumedInstances[packageName]?.remove(it) }
+                val noActiveInstance = event.instanceId == null || resumedInstances[packageName].isNullOrEmpty()
+                if (activePackage == packageName && noActiveInstance) closeActive(event.timestamp)
             }
             UsageTimelineEventType.ScreenOff -> closeActive(event.timestamp)
         }
@@ -146,8 +175,12 @@ object UsageHistoryRepository {
 
     fun loadDay(context: Context, date: LocalDate): DailyUsageHistory? {
         if (!hasUsageAccess(context) || date.isAfter(LocalDate.now())) return null
-        val day = queryDay(context, date)
-        UsageLedgerStore(context).write(day, finalized = date < LocalDate.now())
+        val ledger = UsageLedgerStore(context)
+        val queried = queryDay(context, date)
+        val day = if (date < ledger.trackingStartDate && queried.apps.isEmpty()) {
+            queried.copy(availability = UsageDataAvailability.Unavailable)
+        } else queried
+        ledger.write(day, finalized = date < LocalDate.now())
         return day
     }
 
@@ -211,11 +244,24 @@ object UsageHistoryRepository {
                     else -> null
                 }
                 if (type != null) {
-                    timeline += UsageTimelineEvent(event.timeStamp, event.packageName, type)
+                    timeline += UsageTimelineEvent(
+                        event.timeStamp,
+                        event.packageName,
+                        type,
+                        event.className?.hashCode()
+                    )
                 }
             }
 
             val verifiedFocusIntervals = FocusSessionIntervalStore(context).intervalsFor(date, zone)
+            val rawDurations = calculateForegroundDurations(timeline, start, end)
+            val rawHourlyDurations = (0 until 24).map { hour ->
+                val hourStart = date.atTime(hour, 0).atZone(zone).toInstant().toEpochMilli()
+                val hourEnd = minOf(hourStart + 60 * 60 * 1000L, end)
+                if (hourEnd <= hourStart) emptyMap() else {
+                    calculateForegroundDurations(timeline, hourStart, hourEnd)
+                }
+            }
             val durations = calculateAdjustedForegroundDurations(
                 timeline, start, end, context.packageName, verifiedFocusIntervals
             ).toMutableMap()
@@ -260,14 +306,12 @@ object UsageHistoryRepository {
                         missingLegacyFocusMillis -= matched
                     }
                 }
-            val hourlyMinutes = hourlyDurations.map { durationsByApp ->
-                (durationsByApp.values.sum() / 60_000L).toInt()
-            }
             val intentionalFocusHourlyMinutes = intentionalFocusHourlyMillis.map { (it / 60_000L).toInt() }
-            val lateNightMillis = hourlyDurations.filterIndexed { hour, _ -> hour < 6 || hour >= 22 }
-                .sumOf { it.values.sum() }
             val intentionalFocusMillis = maxOf(intervalFocusMillis, completedFocusMillis)
-            val apps = durations
+            val displayDurations = durations.toMutableMap().apply {
+                rawDurations[context.packageName]?.let { put(context.packageName, it) }
+            }
+            val apps = displayDurations
                 .asSequence()
                 .filter { (packageName, millis) ->
                     packageName !in excludedPackages && millis >= 60_000L
@@ -282,11 +326,29 @@ object UsageHistoryRepository {
                         packageName,
                         label,
                         millis,
-                        hourlyDurations.map { it[packageName] ?: 0L }
+                        if (packageName == context.packageName) {
+                            rawHourlyDurations.map { it[packageName] ?: 0L }
+                        } else {
+                            hourlyDurations.map { it[packageName] ?: 0L }
+                        }
                     )
                 }
                 .sortedByDescending(AppUsageEntry::foregroundMillis)
                 .toList()
+            val includedPackages = apps.mapTo(mutableSetOf(), AppUsageEntry::packageName)
+            val attentionHourlyMillis = rawHourlyDurations.map { durationsByApp ->
+                val deviceForegroundMillis = durationsByApp
+                    .filterKeys { it in includedPackages }
+                    .values
+                    .sum()
+                calculateAttentionMillis(
+                    deviceForegroundMillis,
+                    durationsByApp[context.packageName] ?: 0L
+                )
+            }
+            val attentionMillis = attentionHourlyMillis.sum()
+            val hourlyMinutes = attentionHourlyMillis.map { (it / 60_000L).toInt() }
+            val lateNightMillis = attentionHourlyMillis.filterIndexed { hour, _ -> hour < 6 || hour >= 22 }.sum()
         return DailyUsageHistory(
             date = date,
             apps = apps,
@@ -295,6 +357,7 @@ object UsageHistoryRepository {
             hourlyMinutes = hourlyMinutes,
             intentionalFocusMinutes = (intentionalFocusMillis / 60_000L).toInt(),
             intentionalFocusHourlyMinutes = intentionalFocusHourlyMinutes,
+            attentionMillis = attentionMillis,
             availability = if (date == LocalDate.now()) UsageDataAvailability.Partial else UsageDataAvailability.Collected
         )
     }

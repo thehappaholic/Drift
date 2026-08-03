@@ -20,6 +20,17 @@ data class FocusStreakStats(
     val recentDays: List<FocusDay>
 )
 
+fun focusStreakEndingOn(days: List<FocusDay>, date: LocalDate): Int {
+    val byDate = days.associateBy(FocusDay::date)
+    var cursor = date
+    var streak = 0
+    while (byDate[cursor]?.goalReached == true) {
+        streak++
+        cursor = cursor.minusDays(1)
+    }
+    return streak
+}
+
 class FocusStreakStore(private val preferences: SharedPreferences) {
     fun minutesFor(date: LocalDate): Int = readHistory()[date] ?: 0
 

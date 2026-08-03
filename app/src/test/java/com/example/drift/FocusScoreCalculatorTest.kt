@@ -3,8 +3,22 @@ package com.example.drift
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.LocalDate
 
 class FocusScoreCalculatorTest {
+    @Test
+    fun `historical streak ends on the selected day`() {
+        val monday = LocalDate.of(2026, 8, 3)
+        val days = listOf(
+            FocusDay(monday.minusDays(2), 40),
+            FocusDay(monday.minusDays(1), 40),
+            FocusDay(monday, 0)
+        )
+
+        assertEquals(2, focusStreakEndingOn(days, monday.minusDays(1)))
+        assertEquals(0, focusStreakEndingOn(days, monday))
+    }
+
     @Test
     fun `balanced productive day scores highly`() {
         val result = calculateFocusScore(150, 18, .6f, 40, 3, 5)

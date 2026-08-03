@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
@@ -35,6 +36,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -69,6 +71,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LocalRippleConfiguration
@@ -91,6 +94,8 @@ import com.example.drift.data.remote.SupabaseProvider
 import io.github.jan.supabase.auth.handleDeeplinks
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 
 
 class MainActivity : ComponentActivity() {
@@ -128,6 +133,7 @@ class MainActivity : ComponentActivity() {
                     var focusRemainingSeconds by remember { mutableStateOf(40 * 60) }
                     var focusSessionStarted by remember { mutableStateOf(false) }
                     var focusSessionStartedAtMillis by remember { mutableStateOf<Long?>(null) }
+                    var backgroundEndedFocusSeconds by remember { mutableStateOf<Int?>(null) }
                     var focusStreakStats by remember { mutableStateOf(focusStreakStore.load()) }
                     var pendingVerificationEmail by remember { mutableStateOf("") }
                     var signupVerificationRequired by remember { mutableStateOf(false) }
@@ -144,6 +150,30 @@ class MainActivity : ComponentActivity() {
                     val googleSignInDestination by
                         AuthRepository.googleSignInDestination.collectAsState()
                     val appScope = rememberCoroutineScope()
+                    val lifecycleOwner = LocalLifecycleOwner.current
+
+                    DisposableEffect(lifecycleOwner) {
+                        val observer = LifecycleEventObserver { _, event ->
+                            if (
+                                event == Lifecycle.Event.ON_STOP &&
+                                currentScreen == "focus_timer" &&
+                                focusSessionStarted &&
+                                !this@MainActivity.isChangingConfigurations
+                            ) {
+                                val elapsedSeconds = (40 * 60 - focusRemainingSeconds)
+                                    .coerceIn(0, 40 * 60)
+                                focusSessionIntervalStore.stop()
+                                lastFocusSeconds = elapsedSeconds
+                                focusSessionStarted = false
+                                focusSessionStartedAtMillis = null
+                                focusRemainingSeconds = 40 * 60
+                                backgroundEndedFocusSeconds = elapsedSeconds
+                                currentScreen = "dashboard"
+                            }
+                        }
+                        lifecycleOwner.lifecycle.addObserver(observer)
+                        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+                    }
 
                     LaunchedEffect(authDeepLinkError.value) {
                         if (authDeepLinkError.value != null) {
@@ -670,6 +700,25 @@ class MainActivity : ComponentActivity() {
                         else -> WelcomeScreen(
                             onLoginClick = { currentScreen = "login" },
                             onSignUpClick = { currentScreen = "signup" }
+                        )
+                    }
+                    backgroundEndedFocusSeconds?.let { focusedSeconds ->
+                        AlertDialog(
+                            onDismissRequest = { backgroundEndedFocusSeconds = null },
+                            title = { Text("Focus session ended") },
+                            text = {
+                                val focusedMinutes = focusedSeconds / 60
+                                Text(
+                                    "You left Drift, so your focus session ended automatically. " +
+                                        if (focusedMinutes > 0) "$focusedMinutes focused minute${if (focusedMinutes == 1) " was" else "s were"} saved."
+                                        else "No focus time was saved."
+                                )
+                            },
+                            confirmButton = {
+                                TextButton(onClick = { backgroundEndedFocusSeconds = null }) {
+                                    Text("Got it")
+                                }
+                            }
                         )
                     }
                     }

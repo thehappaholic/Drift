@@ -44,6 +44,13 @@ class ScreenTimeBandTest {
     }
 
     @Test
+    fun `focus score labels describe score health rather than risk severity`() {
+        assertEquals("Room to grow", focusScoreLabel(53))
+        assertEquals("Moderate", focusScoreLabel(60))
+        assertEquals("Good", focusScoreLabel(80))
+    }
+
+    @Test
     fun `budget usage warns before and at the allocated limit`() {
         assertEquals(MetricStatus.Positive, budgetUsageStatus(33, 45))
         assertEquals(MetricStatus.Moderate, budgetUsageStatus(34, 45))

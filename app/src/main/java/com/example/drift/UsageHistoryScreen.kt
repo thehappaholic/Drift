@@ -159,10 +159,19 @@ fun UsageHistoryScreen(onBack: () -> Unit) {
                         color = palette.foreground
                     )
                     Text(
-                        if (unavailable) "Drift had not started mobile-only tracking" else if (selected.availability == UsageDataAvailability.Partial) "Today · still collecting" else "${selected.apps.size} apps used · finalized",
+                        if (unavailable) "Drift had not started mobile-only tracking"
+                        else "Attention usage · ${formatUsageMinutes(selected.deviceScreenMinutes)} total device time",
                         style = MaterialTheme.typography.bodyMedium,
                         color = palette.foreground
                     )
+                    if (!unavailable) {
+                        Text(
+                            if (selected.availability == UsageDataAvailability.Partial) "Today · still collecting"
+                            else "${selected.apps.size} apps used · finalized",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = palette.foreground
+                        )
+                    }
                 }
 
                 Spacer(Modifier.height(18.dp))
@@ -254,7 +263,11 @@ fun UsageHistoryScreen(onBack: () -> Unit) {
                     } else {
                         val longest = selected.apps.maxOf(AppUsageEntry::foregroundMinutes).coerceAtLeast(1)
                         selected.apps.forEachIndexed { index, app ->
-                            val appPalette = screenTimePalette(app.foregroundMinutes)
+                            val isDrift = app.packageName == context.packageName
+                            val appPalette = if (isDrift) {
+                                RiskPalette(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.primary)
+                            } else screenTimePalette(app.foregroundMinutes)
+                            val appBarColor = if (isDrift) com.example.drift.ui.theme.DriftLilac else appPalette.background
                             Column(Modifier.padding(vertical = 12.dp)) {
                                 Row(
                                     Modifier.fillMaxWidth().clickable {
@@ -274,7 +287,9 @@ fun UsageHistoryScreen(onBack: () -> Unit) {
                                     Arrangement.SpaceBetween,
                                     Alignment.CenterVertically
                                 ) {
-                                    Text(app.appName, style = MaterialTheme.typography.bodyMedium)
+                                    Column {
+                                        Text(app.appName, style = MaterialTheme.typography.bodyMedium)
+                                    }
                                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                                         Text(formatUsageMinutes(app.foregroundMinutes), style = MaterialTheme.typography.labelLarge,
                                             color = riskAccentColor(appPalette))
@@ -290,12 +305,19 @@ fun UsageHistoryScreen(onBack: () -> Unit) {
                                 LinearProgressIndicator(
                                     progress = { app.foregroundMinutes / longest.toFloat() },
                                     modifier = Modifier.fillMaxWidth().height(5.dp),
-                                    color = appPalette.background,
+                                    color = appBarColor,
                                     trackColor = MaterialTheme.colorScheme.surfaceVariant,
                                     drawStopIndicator = {}
                                 )
                                 if (expandedPackage == app.packageName) {
-                                    AppHourlyUsageChart(app, appPalette.background)
+                                    AppHourlyUsageChart(
+                                        app = app,
+                                        barColor = appBarColor,
+                                        highlightedHourlyMillis = if (app.packageName == context.packageName) {
+                                            selected.intentionalFocusHourlyMinutes.map { it * 60_000L }
+                                        } else emptyList(),
+                                        highlightColor = com.example.drift.ui.theme.DriftLilac
+                                    )
                                 }
                             }
                             if (index < selected.apps.lastIndex) {

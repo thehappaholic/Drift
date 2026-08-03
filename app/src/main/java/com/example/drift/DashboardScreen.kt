@@ -14,8 +14,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -25,6 +27,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -40,6 +43,8 @@ import java.time.temporal.ChronoUnit
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 
 private val HomeShape = RoundedCornerShape(14.dp)
 private val PreviewWeeklyScreenTimeMinutes = listOf(30, 90, 150, 210, 270, 330, 360)
@@ -63,9 +68,10 @@ fun DashboardScreen(
     onSettingsClick: () -> Unit = {}
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var resumeRefreshKey by remember { mutableIntStateOf(0) }
     var upcomingAssignments by remember { mutableStateOf(emptyList<Assignment>()) }
     var weeklyUsageHistory by remember { mutableStateOf(emptyList<DailyUsageHistory>()) }
-    var todayAppUsage by remember { mutableStateOf(emptyList<AppUsageEntry>()) }
     var todayUsage by remember {
         mutableStateOf(DailyUsageHistory(LocalDate.now(), emptyList()))
     }
@@ -74,7 +80,15 @@ fun DashboardScreen(
         mutableStateOf(DailyUsageHistory(LocalDate.now(), emptyList()))
     }
 
-    LaunchedEffect(Unit) {
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) resumeRefreshKey++
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    LaunchedEffect(resumeRefreshKey) {
         AssignmentRepository.loadAssignments().onSuccess { assignments ->
             upcomingAssignments = assignments.filterNot(Assignment::isCompleted).take(3)
         }
@@ -85,7 +99,6 @@ fun DashboardScreen(
             if (realHistory.isNotEmpty()) {
                 weeklyUsageHistory = realHistory
                 todayUsage = realHistory.last()
-                todayAppUsage = todayUsage.apps
                 displayedUsage = todayUsage
             }
         }
@@ -125,22 +138,26 @@ fun DashboardScreen(
             )
             Text("Here’s what deserves your attention today.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(20.dp))
-            val budgetRatio = calculateBudgetUsageRatio(todayAppUsage, appBudgets)
+            val selectedFocusMinutes = focusStreakStats.recentDays
+                .firstOrNull { it.date == displayedUsage.date }
+                ?.focusedMinutes ?: 0
+            val budgetRatio = calculateBudgetUsageRatio(displayedUsage.apps, appBudgets)
             val focusScore = calculateFocusScore(
-                screenTimeMinutes = todayUsage.totalMinutes,
-                unlockCount = todayUsage.unlockCount,
+                screenTimeMinutes = displayedUsage.totalMinutes,
+                unlockCount = displayedUsage.unlockCount,
                 budgetUsageRatio = budgetRatio,
-                focusedMinutes = focusStreakStats.todayMinutes,
-                currentStreak = focusStreakStats.currentStreak,
-                lateNightMinutes = todayUsage.lateNightMinutes
+                focusedMinutes = selectedFocusMinutes,
+                currentStreak = focusStreakEndingOn(focusStreakStats.recentDays, displayedUsage.date),
+                lateNightMinutes = displayedUsage.lateNightMinutes
             ).total
             SignalCards(
                 onFocusScoreClick,
                 onInsightsClick,
                 onUsageHistoryClick,
-                weeklyUsageHistory.lastOrNull()?.totalMinutes ?: 0,
-                todayUsage.unlockCount,
-                focusScore
+                displayedUsage.totalMinutes,
+                displayedUsage.unlockCount,
+                focusScore,
+                displayedUsage.availability != UsageDataAvailability.Unavailable
             )
             Spacer(Modifier.height(25.dp))
             UsageDaySelector(
@@ -150,15 +167,11 @@ fun DashboardScreen(
                 onNext = { if (selectedUsageDate < LocalDate.now()) selectedUsageDate = selectedUsageDate.plusDays(1) }
             )
             Spacer(Modifier.height(9.dp))
-            HourlyUsageChart(
-                displayedUsage,
-                completedFocusMinutes = focusStreakStats.recentDays
-                    .firstOrNull { it.date == displayedUsage.date }?.focusedMinutes
-            )
+            HourlyUsageChart(displayedUsage)
             Spacer(Modifier.height(25.dp))
             SectionTitle("MOST USED", "View all apps", onUsageHistoryClick)
             Spacer(Modifier.height(9.dp))
-            UsageBreakdown(displayedUsage.apps, appBudgets)
+            UsageBreakdown(displayedUsage, appBudgets)
             Spacer(Modifier.height(25.dp))
             SectionTitle("COMING UP", "View tasks", onTasksClick)
             Spacer(Modifier.height(9.dp))
@@ -207,25 +220,38 @@ private fun SignalCards(
     onFocus: () -> Unit,
     onInsights: () -> Unit,
     onUsageHistory: () -> Unit,
-    todayScreenTimeMinutes: Int,
+    todayAttentionMinutes: Int,
     unlockCount: Int,
-    focusScoreValue: Int
+    focusScoreValue: Int,
+    dataAvailable: Boolean
 ) {
-    val screenTime = screenTimePalette(todayScreenTimeMinutes)
+    if (!dataAvailable) {
+        val unavailable = RiskPalette(
+            MaterialTheme.colorScheme.primaryContainer,
+            MaterialTheme.colorScheme.primary
+        )
+        Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(8.dp)) {
+            SignalCard("Attention use", "—", "Not collected", unavailable.background, unavailable.foreground, Modifier.weight(1f), onUsageHistory)
+            SignalCard("Unlocks", "—", "Not collected", unavailable.background, unavailable.foreground, Modifier.weight(1f), onInsights)
+            SignalCard("Focus score", "—", "Not collected", unavailable.background, unavailable.foreground, Modifier.weight(1f), onFocus)
+        }
+        return
+    }
+    val screenTime = screenTimePalette(todayAttentionMinutes)
     val unlocks = unlockPalette(unlockCount)
     val focusScore = focusScorePalette(focusScoreValue)
     Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(8.dp)) {
         SignalCard(
-            "Screen time",
-            formatGraphDuration(todayScreenTimeMinutes),
-            screenTimeStatusLabel(todayScreenTimeMinutes),
+            "Attention use",
+            formatGraphDuration(todayAttentionMinutes),
+            screenTimeStatusLabel(todayAttentionMinutes),
             screenTime.background,
             screenTime.foreground,
             Modifier.weight(1f),
             onUsageHistory
         )
         SignalCard("Unlocks", unlockCount.toString(), metricStatusLabel(unlockStatus(unlockCount)), unlocks.background, unlocks.foreground, Modifier.weight(1f), onInsights)
-        SignalCard("Focus score", focusScoreValue.toString(), metricStatusLabel(focusScoreStatus(focusScoreValue)), focusScore.background, focusScore.foreground, Modifier.weight(1f), onFocus)
+        SignalCard("Focus score", focusScoreValue.toString(), focusScoreLabel(focusScoreValue), focusScore.background, focusScore.foreground, Modifier.weight(1f), onFocus)
     }
 }
 
@@ -255,7 +281,7 @@ private fun UsageDaySelector(
     onNext: () -> Unit
 ) {
     Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-        Text("HOURLY SCREEN TIME", style = MaterialTheme.typography.labelSmall,
+        Text("HOURLY ATTENTION USAGE", style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onPrevious, modifier = Modifier.size(32.dp)) {
@@ -321,24 +347,32 @@ private fun ScreenTimeChart(history: List<DailyUsageHistory>) {
 }
 
 @Composable
-private fun HourlyUsageChart(day: DailyUsageHistory, completedFocusMinutes: Int? = null) {
+private fun HourlyUsageChart(day: DailyUsageHistory) {
+    val unavailable = day.availability == UsageDataAvailability.Unavailable
+    var showUsageInfo by remember(day.date, day.attentionMinutes) { mutableStateOf(false) }
     val hours = day.hourlyMinutes.takeIf { it.size == 24 } ?: List(24) { 0 }
-    val focusHours = (day.intentionalFocusHourlyMinutes.takeIf { it.size == 24 } ?: List(24) { 0 }).toMutableList()
-    if (day.date == LocalDate.now() && completedFocusMinutes != null) {
-        val missing = (completedFocusMinutes - focusHours.sum()).coerceAtLeast(0)
-        if (missing > 0) {
-            val hour = focusHours.indexOfLast { it > 0 }.takeIf { it >= 0 } ?: LocalTime.now().hour
-            focusHours[hour] += missing
-        }
-    }
+    val focusHours = day.apps
+        .firstOrNull { it.packageName == "com.example.drift" }
+        ?.hourlyMillis
+        ?.takeIf { it.size == 24 }
+        ?.map { (it / 60_000L).toInt() }
+        ?: List(24) { 0 }
     val maximum = hours.indices.maxOfOrNull { hours[it] + focusHours[it] }?.coerceAtLeast(1) ?: 1
     Column(
-        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, HomeShape)
-            .border(1.dp, MaterialTheme.colorScheme.outline, HomeShape).padding(16.dp)
+        Modifier.fillMaxWidth()
+            .background(
+                if (unavailable) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+                HomeShape
+            )
+            .border(
+                1.dp,
+                if (unavailable) MaterialTheme.colorScheme.primary.copy(alpha = .35f) else MaterialTheme.colorScheme.outline,
+                HomeShape
+            ).padding(16.dp)
     ) {
         Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.Bottom) {
             Column {
-                Text(formatGraphDuration(day.totalMinutes), style = MaterialTheme.typography.titleLarge)
+                Text(if (unavailable) "—" else formatGraphDuration(day.totalMinutes), style = MaterialTheme.typography.titleLarge)
                 Text(
                     when (day.date) {
                         LocalDate.now() -> "today"
@@ -349,8 +383,25 @@ private fun HourlyUsageChart(day: DailyUsageHistory, completedFocusMinutes: Int?
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            Text(screenTimeStatusLabel(day.totalMinutes), style = MaterialTheme.typography.labelMedium,
-                color = riskAccentColor(screenTimePalette(day.totalMinutes)))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    if (unavailable) "Not collected" else screenTimeStatusLabel(day.totalMinutes),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (unavailable) MaterialTheme.colorScheme.primary
+                    else riskAccentColor(screenTimePalette(day.totalMinutes))
+                )
+                Spacer(Modifier.width(8.dp))
+                Surface(
+                    modifier = Modifier.size(22.dp).clickable(enabled = !unavailable) { showUsageInfo = true },
+                    shape = RoundedCornerShape(50),
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.primary
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text("!", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
         }
         Spacer(Modifier.height(16.dp))
         Row(Modifier.fillMaxWidth().height(92.dp), Arrangement.spacedBy(3.dp), Alignment.Bottom) {
@@ -377,29 +428,56 @@ private fun HourlyUsageChart(day: DailyUsageHistory, completedFocusMinutes: Int?
         }
         Spacer(Modifier.height(7.dp))
         Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
-            listOf("12am", "6am", "12pm", "6pm", if (day.date == LocalDate.now()) "Now" else "11pm").forEach {
+            listOf("12am", "6am", "12pm", "6pm", "12am").forEach {
                 Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         Spacer(Modifier.height(10.dp))
-        Text("Hourly mobile screen usage", style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
-        val displayedFocusMinutes = maxOf(day.intentionalFocusMinutes, completedFocusMinutes ?: 0)
-        if (displayedFocusMinutes > 0) {
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "${formatGraphDuration(displayedFocusMinutes)} verified focus shown separately",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary
-            )
-        }
-        Spacer(Modifier.height(5.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            Text("■ Attention usage", style = MaterialTheme.typography.labelSmall,
-                color = riskAccentColor(screenTimePalette(day.totalMinutes)))
-            Text("■ Drift focus", style = MaterialTheme.typography.labelSmall,
+        if (unavailable) {
+            Text("■ Not collected", style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.primary)
+        } else {
+            Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text("■ Attention usage", style = MaterialTheme.typography.labelSmall,
+                    color = riskAccentColor(screenTimePalette(day.totalMinutes)))
+                Text("■ Drift mindful use", style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary)
+            }
         }
+    }
+    if (showUsageInfo) {
+        AlertDialog(
+            onDismissRequest = { showUsageInfo = false },
+            title = { Text("Your attention time") },
+            text = {
+                val focusWithScreenOff =
+                    (day.intentionalFocusMinutes - day.focusOverlapMinutes).coerceAtLeast(0)
+                val dayPhrase = when (day.date) {
+                    LocalDate.now() -> "today"
+                    LocalDate.now().minusDays(1) -> "yesterday"
+                    else -> "on ${day.date.format(DateTimeFormatter.ofPattern("d MMM"))}"
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Phone use: ${formatGraphDuration(day.deviceScreenMinutes)}")
+                    Text("Drift mindful use: ${formatGraphDuration(day.driftForegroundMinutes)}")
+                    Text("Focus Timer total: ${formatGraphDuration(day.intentionalFocusMinutes)}")
+                    Text("Focus time on screen: ${formatGraphDuration(day.focusOverlapMinutes)}")
+                    Text("Attention time: ${formatGraphDuration(day.attentionMinutes)}")
+                    Text(
+                        "You used your phone for ${formatGraphDuration(day.deviceScreenMinutes)} $dayPhrase. " +
+                            "You spent ${formatGraphDuration(day.driftForegroundMinutes)} of that time in Drift. " +
+                            "Drift treats time in the app as mindful use, leaving ${formatGraphDuration(day.attentionMinutes)} as attention usage. " +
+                            "The Focus Timer was active on screen for ${formatGraphDuration(day.focusOverlapMinutes)}. " +
+                            "Another ${formatGraphDuration(focusWithScreenOff)} of your focus session happened while your screen was off, " +
+                            "so it was not part of your phone usage.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showUsageInfo = false }) { Text("Got it") }
+            }
+        )
     }
 }
 
@@ -452,16 +530,19 @@ private fun ScreenTimeLegend() {
 
 @Composable
 private fun UsageBreakdown(
-    appUsage: List<AppUsageEntry>,
+    day: DailyUsageHistory,
     appBudgets: Map<String, Int>
 ) {
+    val context = LocalContext.current
+    val appUsage = day.apps
     val apps = appUsage.take(5)
     var expandedPackage by remember(appUsage) { mutableStateOf<String?>(null) }
     val whitelistedApps = setOf("WhatsApp", "Phone", "YouTube Music", "Spotify")
     Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, HomeShape).border(1.dp, MaterialTheme.colorScheme.outline, HomeShape).padding(16.dp)) {
         if (apps.isEmpty()) {
             Text(
-                "No app usage recorded today.",
+                if (day.availability == UsageDataAvailability.Unavailable) "No usage data was collected for this day."
+                else "No app usage recorded for this day.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -473,11 +554,15 @@ private fun UsageBreakdown(
                 ?.value
             val whitelisted = whitelistedApps.any { it.equals(app.appName, ignoreCase = true) }
             val usedMinutes = app.foregroundMinutes
-            val palette = if (limit != null && usedMinutes >= limit) {
+            val isDrift = app.packageName == context.packageName
+            val palette = if (isDrift) {
+                RiskPalette(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.primary)
+            } else if (limit != null && usedMinutes >= limit) {
                 budgetUsagePalette(usedMinutes, limit)
             } else {
                 screenTimePalette(usedMinutes)
             }
+            val progressColor = if (isDrift) DriftLilac else palette.background
             Row(
                 Modifier.fillMaxWidth().clickable {
                     expandedPackage = if (expandedPackage == app.packageName) null else app.packageName
@@ -485,7 +570,9 @@ private fun UsageBreakdown(
                 Arrangement.SpaceBetween,
                 Alignment.CenterVertically
             ) {
-                Text(app.appName, style = MaterialTheme.typography.bodyMedium)
+                Column {
+                    Text(app.appName, style = MaterialTheme.typography.bodyMedium)
+                }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                     Text(
                         when {
@@ -516,7 +603,7 @@ private fun UsageBreakdown(
                         }
                     },
                     modifier = Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(3.dp)),
-                    color = palette.background,
+                    color = progressColor,
                     trackColor = MaterialTheme.colorScheme.surfaceVariant,
                     drawStopIndicator = {}
                 )
@@ -532,7 +619,14 @@ private fun UsageBreakdown(
                     )
             }
             if (expandedPackage == app.packageName) {
-                AppHourlyUsageChart(app, palette.background)
+                AppHourlyUsageChart(
+                    app = app,
+                    barColor = progressColor,
+                    highlightedHourlyMillis = if (app.packageName == context.packageName) {
+                        day.intentionalFocusHourlyMinutes.map { it * 60_000L }
+                    } else emptyList(),
+                    highlightColor = DriftLilac
+                )
             }
             if (index < apps.lastIndex) Spacer(Modifier.height(14.dp))
         }

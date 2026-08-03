@@ -56,7 +56,11 @@ internal class UsageLedgerStore(context: Context) {
                 intentionalFocusHourlyMinutes = root.optJSONArray("focusHourly")?.let { hourly ->
                     (0 until hourly.length()).map(hourly::optInt)
                 }.orEmpty(),
-                availability = if (root.optBoolean("finalized")) UsageDataAvailability.Collected
+                attentionMillis = if (root.has("attentionMillis")) root.optLong("attentionMillis") else null,
+                availability = root.optString("availability")
+                    .takeIf(String::isNotBlank)
+                    ?.let { runCatching { UsageDataAvailability.valueOf(it) }.getOrNull() }
+                    ?: if (root.optBoolean("finalized")) UsageDataAvailability.Collected
                     else UsageDataAvailability.Partial
             )
         }.getOrNull()
@@ -75,6 +79,8 @@ internal class UsageLedgerStore(context: Context) {
             .put("hourly", JSONArray(day.hourlyMinutes))
             .put("intentionalFocus", day.intentionalFocusMinutes)
             .put("focusHourly", JSONArray(day.intentionalFocusHourlyMinutes))
+            .put("attentionMillis", day.attentionMillis)
+            .put("availability", day.availability.name)
             .put("finalized", finalized)
             .put("updatedAt", System.currentTimeMillis())
         preferences.edit().putString(dayKey(day.date), root.toString()).apply()

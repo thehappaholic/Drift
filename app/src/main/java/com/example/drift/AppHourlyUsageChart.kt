@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -23,6 +24,8 @@ import androidx.compose.ui.unit.dp
 fun AppHourlyUsageChart(
     app: AppUsageEntry,
     barColor: Color,
+    highlightedHourlyMillis: List<Long> = emptyList(),
+    highlightColor: Color = Color.Unspecified,
     modifier: Modifier = Modifier
 ) {
     val hours = app.hourlyMillis.takeIf { it.size == 24 }
@@ -37,13 +40,24 @@ fun AppHourlyUsageChart(
         }
         val maximum = hours.maxOrNull()?.coerceAtLeast(1L) ?: 1L
         Row(Modifier.fillMaxWidth().height(70.dp), Arrangement.spacedBy(2.dp), Alignment.Bottom) {
-            hours.forEach { millis ->
-                Box(
-                    Modifier.weight(1f)
-                        .height(if (millis == 0L) 2.dp else (5f + millis / maximum.toFloat() * 60f).dp)
-                        .clip(RoundedCornerShape(3.dp, 3.dp, 1.dp, 1.dp))
-                        .background(if (millis == 0L) MaterialTheme.colorScheme.outlineVariant else barColor)
-                )
+            hours.forEachIndexed { index, millis ->
+                val highlighted = highlightedHourlyMillis.getOrNull(index)?.coerceAtMost(millis) ?: 0L
+                Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.BottomCenter) {
+                    Box(
+                        Modifier.fillMaxWidth()
+                            .height(if (millis == 0L) 2.dp else (5f + millis / maximum.toFloat() * 60f).dp)
+                            .clip(RoundedCornerShape(3.dp, 3.dp, 1.dp, 1.dp))
+                            .background(if (millis == 0L) MaterialTheme.colorScheme.outlineVariant else barColor)
+                    )
+                    if (highlighted > 0L && highlightColor != Color.Unspecified) {
+                        Box(
+                            Modifier.fillMaxWidth()
+                                .height((5f + highlighted / maximum.toFloat() * 60f).dp)
+                                .clip(RoundedCornerShape(3.dp, 3.dp, 1.dp, 1.dp))
+                                .background(highlightColor)
+                        )
+                    }
+                }
             }
         }
         Spacer(Modifier.height(5.dp))

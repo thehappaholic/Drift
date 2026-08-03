@@ -306,7 +306,7 @@ fun FocusScoreScreen(
                 if (factorsExpanded) {
                     Spacer(Modifier.height(10.dp))
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                    ScoreFactor("Screen-time balance", componentLabel(score.screenTime, 30))
+                    ScoreFactor("Attention-use balance", componentLabel(score.screenTime, 30))
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     ScoreFactor("Unlock frequency", componentLabel(score.unlocks, 20))
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -357,17 +357,6 @@ fun FocusScoreScreen(
             Spacer(Modifier.height(16.dp))
         }
     }
-}
-
-private fun focusStreakEndingOn(days: List<FocusDay>, date: LocalDate): Int {
-    val byDate = days.associateBy(FocusDay::date)
-    var cursor = date
-    var streak = 0
-    while (byDate[cursor]?.goalReached == true) {
-        streak++
-        cursor = cursor.minusDays(1)
-    }
-    return streak
 }
 
 @Composable
@@ -467,7 +456,7 @@ private fun FocusPatternCalendar(
 private fun componentLabel(points: Int, maximum: Int): String = when {
     points >= maximum * .75f -> "Good"
     points >= maximum * .4f -> "Moderate"
-    else -> "High"
+    else -> "Needs attention"
 }
 
 @Composable

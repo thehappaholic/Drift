@@ -6,6 +6,36 @@ import java.time.LocalDate
 
 class UsageTimelineTest {
     @Test
+    fun `attention usage reclassifies verified focus during device use`() {
+        assertEquals(373L, calculateAttentionMillis(524L, 151L))
+        assertEquals(0L, calculateAttentionMillis(40L, 60L))
+    }
+
+    @Test
+    fun `daily history separates device time attention time and focus overlap`() {
+        val history = DailyUsageHistory(
+            date = LocalDate.of(2026, 8, 3),
+            apps = listOf(
+                AppUsageEntry(
+                    "com.example.drift",
+                    "Drift",
+                    180 * 60_000L,
+                    List(24) { hour -> if (hour == 10) 60 * 60_000L else 0L }
+                ),
+                AppUsageEntry("video", "Video", 140 * 60_000L)
+            ),
+            intentionalFocusHourlyMinutes = List(24) { hour -> if (hour == 10) 40 else 0 },
+            attentionMillis = 140 * 60_000L
+        )
+
+        assertEquals(320, history.deviceScreenMinutes)
+        assertEquals(180, history.driftForegroundMinutes)
+        assertEquals(140, history.attentionMinutes)
+        assertEquals(40, history.focusOverlapMinutes)
+        assertEquals(140, history.totalMinutes)
+    }
+
+    @Test
     fun onboardingBackfillUsesOnlyFourRecentCompletedDays() {
         val today = LocalDate.of(2026, 8, 2)
 
@@ -129,6 +159,23 @@ class UsageTimelineTest {
         )
 
         assertEquals(100L, result["video"])
+    }
+
+    @Test
+    fun `stopping an older activity does not close another activity in the same app`() {
+        val result = calculateForegroundDurations(
+            listOf(
+                UsageTimelineEvent(0, "instagram", UsageTimelineEventType.Resumed, instanceId = 1),
+                UsageTimelineEvent(10, "instagram", UsageTimelineEventType.Resumed, instanceId = 2),
+                UsageTimelineEvent(12, "instagram", UsageTimelineEventType.Paused, instanceId = 1),
+                UsageTimelineEvent(15, "instagram", UsageTimelineEventType.Paused, instanceId = 1),
+                UsageTimelineEvent(100, "instagram", UsageTimelineEventType.Paused, instanceId = 2)
+            ),
+            rangeStart = 0,
+            rangeEnd = 100
+        )
+
+        assertEquals(100L, result["instagram"])
     }
 
     private fun event(time: Long, packageName: String?, type: UsageTimelineEventType) =

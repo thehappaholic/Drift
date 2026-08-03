@@ -78,7 +78,7 @@ fun InsightsScreen(
             Spacer(Modifier.height(24.dp))
             WeeklyUsageCard(history)
             Spacer(Modifier.height(26.dp))
-            SectionHeading("WEEKLY SCREEN TIME", "Last 7 days")
+            SectionHeading("WEEKLY ATTENTION USAGE", "Last 7 days")
             Spacer(Modifier.height(10.dp))
             WeeklyScreenTimeChart(history)
             Spacer(Modifier.height(26.dp))
@@ -90,7 +90,7 @@ fun InsightsScreen(
             Spacer(Modifier.height(10.dp))
             ChangeCards(history)
             Spacer(Modifier.height(26.dp))
-            SectionHeading("SCREEN-TIME RISK", "Last seven days")
+            SectionHeading("ATTENTION-USAGE RISK", "Last seven days")
             Spacer(Modifier.height(10.dp))
             RiskHistoryCard(history)
             Spacer(Modifier.height(26.dp))
@@ -161,7 +161,7 @@ private fun WeeklyUsageCard(history: List<DailyUsageHistory>) {
         }
         Spacer(Modifier.height(15.dp))
         Text(formatInsightDuration(total), style = MaterialTheme.typography.displaySmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
-        Text("total screen time", style = MaterialTheme.typography.bodyLarge, color = InsightLilacInk)
+        Text("total attention usage", style = MaterialTheme.typography.bodyLarge, color = InsightLilacInk)
         Spacer(Modifier.height(12.dp))
         Text("Based on ${collected.size} mobile-only day${if (collected.size == 1) "" else "s"} collected by Drift.", style = MaterialTheme.typography.bodyMedium, color = Muted)
     }
@@ -197,7 +197,7 @@ private fun FocusChart(scores: List<Int>, days: List<String>) {
             }
         }
         Spacer(Modifier.height(16.dp))
-        Text("Uses screen time, unlocks, budgets, focus habit and late-night use.", style = MaterialTheme.typography.bodyMedium, color = Muted)
+        Text("Uses attention time, unlocks, budgets, focus habit and late-night use.", style = MaterialTheme.typography.bodyMedium, color = Muted)
     }
 }
 
@@ -210,7 +210,7 @@ private fun ChangeCards(history: List<DailyUsageHistory>) {
     val screenPalette = metricStatusPalette(if (screenDelta <= 0) MetricStatus.Positive else MetricStatus.Attention)
     val unlockPalette = metricStatusPalette(if (unlockDelta <= 0) MetricStatus.Positive else MetricStatus.Attention)
     Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(10.dp)) {
-        ChangeCard("Screen time", "${signed(screenDelta)}m", screenPalette.background, screenPalette.foreground, Modifier.weight(1f))
+        ChangeCard("Attention use", "${signed(screenDelta)}m", screenPalette.background, screenPalette.foreground, Modifier.weight(1f))
         ChangeCard("Unlocks", signed(unlockDelta), unlockPalette.background, unlockPalette.foreground, Modifier.weight(1f))
     }
 }

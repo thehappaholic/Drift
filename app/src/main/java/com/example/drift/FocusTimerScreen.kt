@@ -447,9 +447,9 @@ fun FocusTimerScreen(
             text = {
                 Text(
                     if (sessionStarted) {
-                        "Distracting apps pause automatically. Calls, messages, WhatsApp and audio stay available."
+                        "Keep Drift open during your focus session. Leaving the app or turning off the screen ends the session automatically."
                     } else {
-                        "Focus protection will turn on when you start the session. Calls, messages, WhatsApp and audio will remain available."
+                        "When you start, keep Drift open. Leaving the app or turning off the screen will end the session automatically."
                     }
                 )
             },

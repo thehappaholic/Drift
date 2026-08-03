@@ -30,6 +30,12 @@ fun focusScoreStatus(score: Int): MetricStatus = when {
     else -> MetricStatus.Attention
 }
 
+fun focusScoreLabel(score: Int): String = when (focusScoreStatus(score)) {
+    MetricStatus.Positive -> "Good"
+    MetricStatus.Moderate -> "Moderate"
+    MetricStatus.Attention -> "Room to grow"
+}
+
 fun budgetUsageStatus(usedMinutes: Int, limitMinutes: Int): MetricStatus = when {
     limitMinutes <= 0 -> MetricStatus.Attention
     usedMinutes * 4 < limitMinutes * 3 -> MetricStatus.Positive
