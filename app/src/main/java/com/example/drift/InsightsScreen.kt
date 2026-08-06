@@ -2,6 +2,7 @@ package com.example.drift
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -13,9 +14,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.drift.ui.theme.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -41,8 +47,15 @@ fun InsightsScreen(
     val scrollState = rememberScrollState()
     val scope = rememberCoroutineScope()
     var history by remember { mutableStateOf<List<DailyUsageHistory>>(emptyList()) }
+    var unlockWindowEnd by remember { mutableStateOf(LocalDate.now()) }
+    var unlockHistory by remember { mutableStateOf<List<DailyUsageHistory>>(emptyList()) }
     LaunchedEffect(Unit) {
         history = withContext(Dispatchers.IO) { UsageHistoryRepository.loadLastSevenDays(context) }
+    }
+    LaunchedEffect(unlockWindowEnd) {
+        unlockHistory = withContext(Dispatchers.IO) {
+            UsageHistoryRepository.loadSevenDaysEnding(context, unlockWindowEnd)
+        }
     }
     val scoreDays = history.filter { it.availability != UsageDataAvailability.Unavailable }
     val scores = scoreDays.map { day ->
@@ -82,6 +95,15 @@ fun InsightsScreen(
             Spacer(Modifier.height(10.dp))
             WeeklyScreenTimeChart(history)
             Spacer(Modifier.height(26.dp))
+            SectionHeading("UNLOCK PATTERN", "Last 7 days")
+            Spacer(Modifier.height(10.dp))
+            UnlockPatternChart(
+                history = unlockHistory,
+                canMoveForward = unlockWindowEnd < LocalDate.now(),
+                onPrevious = { unlockWindowEnd = unlockWindowEnd.minusDays(7) },
+                onNext = { unlockWindowEnd = unlockWindowEnd.plusDays(7).coerceAtMost(LocalDate.now()) }
+            )
+            Spacer(Modifier.height(26.dp))
             SectionHeading("FOCUS RHYTHM", "Daily score")
             Spacer(Modifier.height(10.dp))
             FocusChart(scores, labels)
@@ -113,6 +135,142 @@ fun InsightsScreen(
         }
         }
     }
+}
+
+@Composable
+private fun UnlockPatternChart(
+    history: List<DailyUsageHistory>,
+    canMoveForward: Boolean,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+) {
+    val available = history.filter { it.availability != UsageDataAvailability.Unavailable }
+    val maximum = available.maxOfOrNull(DailyUsageHistory::unlockCount)?.coerceAtLeast(20) ?: 20
+    val pointColors = history.map { day ->
+        if (day.availability == UsageDataAvailability.Unavailable) DriftLilac
+        else riskAccentColor(unlockPalette(day.unlockCount))
+    }
+    val lineColor = MaterialTheme.colorScheme.secondary
+    val guideColor = MaterialTheme.colorScheme.outlineVariant
+    val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+    val surfaceColor = MaterialTheme.colorScheme.surface
+    val today = history.lastOrNull()
+    val yesterday = history.getOrNull(history.lastIndex - 1)
+
+    Column(
+        Modifier.fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface, InsightCard)
+            .border(1.dp, MaterialTheme.colorScheme.outline, InsightCard)
+            .padding(horizontal = 16.dp, vertical = 15.dp)
+    ) {
+        Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+            IconButton(onClick = onPrevious, modifier = Modifier.size(32.dp)) {
+                Text("‹", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
+            }
+            Text(
+                unlockDateRange(history),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            IconButton(onClick = onNext, enabled = canMoveForward, modifier = Modifier.size(32.dp)) {
+                Text(
+                    "›",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = if (canMoveForward) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+                )
+            }
+        }
+        Spacer(Modifier.height(5.dp))
+        Canvas(Modifier.fillMaxWidth().height(158.dp)) {
+            if (history.isEmpty()) return@Canvas
+            val chartTop = 28.dp.toPx()
+            val chartBottom = size.height - 30.dp.toPx()
+            val chartHeight = chartBottom - chartTop
+            val step = if (history.size > 1) size.width / (history.size - 1) else 0f
+            val points = history.mapIndexed { index, day ->
+                val x = if (history.size == 1) size.width / 2f else index * step
+                val y = if (day.availability == UsageDataAvailability.Unavailable) chartBottom
+                else chartBottom - (day.unlockCount / maximum.toFloat()) * chartHeight
+                androidx.compose.ui.geometry.Offset(x, y)
+            }
+
+            drawLine(guideColor, androidx.compose.ui.geometry.Offset(0f, chartBottom), androidx.compose.ui.geometry.Offset(size.width, chartBottom), 1.dp.toPx())
+            for (index in 0 until history.lastIndex) {
+                val currentAvailable = history[index].availability != UsageDataAvailability.Unavailable
+                val nextAvailable = history[index + 1].availability != UsageDataAvailability.Unavailable
+                if (currentAvailable && nextAvailable) {
+                    drawLine(lineColor, points[index], points[index + 1], 2.dp.toPx(), cap = StrokeCap.Round)
+                }
+            }
+
+            points.forEachIndexed { index, point ->
+                val day = history[index]
+                val isToday = day.date == LocalDate.now()
+                if (isToday && day.availability != UsageDataAvailability.Unavailable) {
+                    drawCircle(lineColor, 7.dp.toPx(), point)
+                    drawCircle(surfaceColor, 5.dp.toPx(), point)
+                }
+                drawCircle(pointColors[index], if (isToday) 3.8.dp.toPx() else 4.5.dp.toPx(), point)
+            }
+
+            drawIntoCanvas { canvas ->
+                val valuePaint = android.graphics.Paint().apply {
+                    isAntiAlias = true
+                    textAlign = android.graphics.Paint.Align.CENTER
+                    textSize = 11.sp.toPx()
+                    typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+                }
+                val dayPaint = android.graphics.Paint().apply {
+                    isAntiAlias = true
+                    textAlign = android.graphics.Paint.Align.CENTER
+                    textSize = 11.sp.toPx()
+                    color = labelColor.toArgb()
+                }
+                points.forEachIndexed { index, point ->
+                    val day = history[index]
+                    valuePaint.color = pointColors[index].toArgb()
+                    val value = if (day.availability == UsageDataAvailability.Unavailable) "—" else day.unlockCount.toString()
+                    canvas.nativeCanvas.drawText(value, point.x, point.y - 10.dp.toPx(), valuePaint)
+                    val dayLabel = day.date.dayOfWeek.getDisplayName(TextStyle.NARROW, Locale.getDefault())
+                    canvas.nativeCanvas.drawText(dayLabel, point.x, size.height - 3.dp.toPx(), dayPaint)
+                }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            unlockComparisonText(today, yesterday),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "● Under 40   ● 40–79   ● 80+   ● Not collected",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+private fun unlockComparisonText(today: DailyUsageHistory?, yesterday: DailyUsageHistory?): String {
+    val isToday = today?.date == LocalDate.now()
+    val selectedLabel = if (isToday) "today" else today?.date?.let { "on ${it.dayOfMonth} ${it.month.getDisplayName(TextStyle.SHORT, Locale.getDefault())}" } ?: ""
+    if (today == null || today.availability == UsageDataAvailability.Unavailable) return "Unlock data is not available for this day"
+    if (yesterday == null || yesterday.availability == UsageDataAvailability.Unavailable) return "${today.unlockCount} unlocks $selectedLabel · no comparison available"
+    val difference = today.unlockCount - yesterday.unlockCount
+    val comparison = when {
+        difference < 0 -> "${abs(difference)} fewer than the previous day"
+        difference > 0 -> "$difference more than the previous day"
+        else -> "same as the previous day"
+    }
+    return "${today.unlockCount} unlocks $selectedLabel · $comparison"
+}
+
+private fun unlockDateRange(history: List<DailyUsageHistory>): String {
+    val first = history.firstOrNull()?.date ?: return "Loading…"
+    val last = history.lastOrNull()?.date ?: return "Loading…"
+    val month = last.month.getDisplayName(TextStyle.SHORT, Locale.getDefault())
+    return if (first.month == last.month) "${first.dayOfMonth}–${last.dayOfMonth} $month ${last.year}"
+    else "${first.dayOfMonth} ${first.month.getDisplayName(TextStyle.SHORT, Locale.getDefault())}–${last.dayOfMonth} $month"
 }
 
 @Composable

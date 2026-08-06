@@ -1,9 +1,5 @@
 package com.example.drift
 
-import android.media.AudioManager
-import android.media.ToneGenerator
-import android.os.Handler
-import android.os.Looper
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.LinearEasing
@@ -55,6 +51,8 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontStyle
@@ -83,6 +81,7 @@ fun FocusTimerScreen(
     onFocusRunningChanged: (Boolean) -> Unit,
     onSessionComplete: () -> Unit
 ) {
+    val context = LocalContext.current
     val sessionLengthSeconds = 40 * 60
     var paused by remember { mutableStateOf(false) }
     var showEarlyBreakMessage by remember { mutableStateOf(false) }
@@ -91,6 +90,12 @@ fun FocusTimerScreen(
     var showProtectionInfo by remember { mutableStateOf(false) }
     var sessionGoal by remember { mutableStateOf<Assignment?>(null) }
     val timerPaused = !sessionStarted || paused || showEndConfirmation || showSessionEnded
+    val view = LocalView.current
+
+    DisposableEffect(view, sessionStarted, timerPaused) {
+        view.keepScreenOn = sessionStarted && !timerPaused
+        onDispose { view.keepScreenOn = false }
+    }
 
     BackHandler {
         if (sessionStarted) showEndConfirmation = true else onBack()
@@ -399,7 +404,7 @@ fun FocusTimerScreen(
                     onClick = {
                         showEndConfirmation = false
                         onFocusRunningChanged(false)
-                        playEndSessionSound()
+                        DriftSoundPlayer.playSessionEnd(context)
                         showSessionEnded = true
                     }
                 ) {
@@ -478,17 +483,6 @@ fun FocusTimerScreen(
             }
         )
     }
-}
-
-private fun playEndSessionSound() {
-    val tone = runCatching {
-        ToneGenerator(AudioManager.STREAM_NOTIFICATION, 35)
-    }.getOrNull() ?: return
-    if (!tone.startTone(ToneGenerator.TONE_PROP_BEEP2, 220)) {
-        tone.release()
-        return
-    }
-    Handler(Looper.getMainLooper()).postDelayed({ tone.release() }, 280L)
 }
 
 private fun Assignment.deadlineCountdown(now: LocalDateTime = LocalDateTime.now()): String {

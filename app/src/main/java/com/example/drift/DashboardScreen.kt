@@ -34,11 +34,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.drift.data.assignment.Assignment
 import com.example.drift.data.assignment.AssignmentRepository
+import com.example.drift.data.profile.OnboardingDraft
 import com.example.drift.ui.theme.*
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
+import java.time.format.TextStyle
 import java.time.temporal.ChronoUnit
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
@@ -52,6 +54,7 @@ private val PreviewWeeklyScreenTimeMinutes = listOf(30, 90, 150, 210, 270, 330, 
 @Composable
 fun DashboardScreen(
     userName: String = "",
+    onboarding: OnboardingDraft = OnboardingDraft(),
     appBudgets: Map<String, Int> = mapOf(
         "Instagram" to 45,
         "YouTube" to 40,
@@ -71,6 +74,7 @@ fun DashboardScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     var resumeRefreshKey by remember { mutableIntStateOf(0) }
     var upcomingAssignments by remember { mutableStateOf(emptyList<Assignment>()) }
+    var completedAssignmentsCount by remember { mutableIntStateOf(0) }
     var weeklyUsageHistory by remember { mutableStateOf(emptyList<DailyUsageHistory>()) }
     var todayUsage by remember {
         mutableStateOf(DailyUsageHistory(LocalDate.now(), emptyList()))
@@ -91,6 +95,7 @@ fun DashboardScreen(
     LaunchedEffect(resumeRefreshKey) {
         AssignmentRepository.loadAssignments().onSuccess { assignments ->
             upcomingAssignments = assignments.filterNot(Assignment::isCompleted).take(3)
+            completedAssignmentsCount = assignments.count(Assignment::isCompleted)
         }
         if (UsageHistoryRepository.hasUsageAccess(context)) {
             val realHistory = withContext(Dispatchers.IO) {
@@ -150,6 +155,26 @@ fun DashboardScreen(
                 currentStreak = focusStreakEndingOn(focusStreakStats.recentDays, displayedUsage.date),
                 lateNightMinutes = displayedUsage.lateNightMinutes
             ).total
+            val productivityPrediction = remember(
+                displayedUsage,
+                selectedFocusMinutes,
+                focusScore,
+                completedAssignmentsCount,
+                onboarding
+            ) {
+                if (displayedUsage.availability == UsageDataAvailability.Unavailable) null
+                else runCatching {
+                    ProductivityPredictor.fromAssets(context).predict(
+                        dashboardProductivityInputs(
+                            onboarding = onboarding,
+                            usage = displayedUsage,
+                            focusedMinutes = selectedFocusMinutes,
+                            focusScore = focusScore,
+                            completedAssignments = completedAssignmentsCount
+                        )
+                    )
+                }.getOrNull()
+            }
             SignalCards(
                 onFocusScoreClick,
                 onInsightsClick,
@@ -159,6 +184,8 @@ fun DashboardScreen(
                 focusScore,
                 displayedUsage.availability != UsageDataAvailability.Unavailable
             )
+            Spacer(Modifier.height(10.dp))
+            ProductivityEstimateCard(productivityPrediction, displayedUsage.date, onInsightsClick)
             Spacer(Modifier.height(25.dp))
             UsageDaySelector(
                 date = selectedUsageDate,
@@ -179,6 +206,101 @@ fun DashboardScreen(
             Spacer(Modifier.height(28.dp))
         }
     }
+}
+
+@Composable
+private fun ProductivityEstimateCard(
+    prediction: ProductivityPrediction?,
+    date: LocalDate,
+    onClick: () -> Unit
+) {
+    val palette = prediction?.let { focusScorePalette(it.roundedScore) }
+        ?: RiskPalette(
+            MaterialTheme.colorScheme.primaryContainer,
+            MaterialTheme.colorScheme.primary
+        )
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .background(palette.background, HomeShape)
+            .padding(horizontal = 15.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text("PRODUCTIVITY ESTIMATE", style = MaterialTheme.typography.labelSmall, color = palette.foreground)
+            Text(
+                if (prediction == null) "Waiting for usage data"
+                else if (date == LocalDate.now()) "Prototype ML estimate from today’s signals"
+                else "Prototype ML estimate from signals on ${date.format(DateTimeFormatter.ofPattern("d MMM"))}",
+                style = MaterialTheme.typography.bodySmall,
+                color = palette.foreground
+            )
+        }
+        Text(
+            prediction?.let { "${it.roundedScore}/100" } ?: "—",
+            style = MaterialTheme.typography.titleLarge,
+            color = palette.foreground
+        )
+    }
+}
+
+private fun dashboardProductivityInputs(
+    onboarding: OnboardingDraft,
+    usage: DailyUsageHistory,
+    focusedMinutes: Int,
+    focusScore: Int,
+    completedAssignments: Int
+): ProductivityInputs {
+    fun hoursMatching(vararg terms: String): Double = usage.apps
+        .filter { app -> terms.any { term ->
+            app.appName.contains(term, ignoreCase = true) ||
+                app.packageName.contains(term, ignoreCase = true)
+        } }
+        .sumOf(AppUsageEntry::foregroundMillis) / 3_600_000.0
+
+    val dayName = usage.date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.ENGLISH)
+    val scheduledStudyHours = if (onboarding.studyDays.any { it.equals(dayName, ignoreCase = true) }) {
+        clockRangeHours(onboarding.studyStart, onboarding.studyEnd, fallback = 3.0)
+    } else 0.5
+
+    return ProductivityInputs(
+        gender = onboarding.gender.ifBlank { "Other" },
+        age = ageRangeMidpoint(onboarding.ageRange),
+        studyHoursPerDay = maxOf(scheduledStudyHours, focusedMinutes / 60.0).coerceIn(0.5, 10.0),
+        sleepHours = clockRangeHours(onboarding.windDownStart, onboarding.windDownEnd, fallback = 6.5)
+            .coerceIn(3.0, 10.0),
+        phoneUsageHours = (usage.deviceScreenMinutes / 60.0).coerceIn(0.5, 12.0),
+        socialMediaHours = hoursMatching("instagram", "facebook", "tiktok", "snapchat", "twitter", "x.com")
+            .coerceIn(0.0, 8.0),
+        youtubeHours = hoursMatching("youtube").coerceIn(0.0, 6.0),
+        gamingHours = hoursMatching("game", "gaming", "roblox", "minecraft", "pubg", "freefire")
+            .coerceIn(0.0, 6.0),
+        breaksPerDay = 8.0,
+        coffeeIntakeMg = 249.0,
+        exerciseMinutes = 60.0,
+        assignmentsCompleted = completedAssignments.toDouble().coerceIn(0.0, 19.0),
+        attendancePercentage = 70.0,
+        stressLevel = 5.0,
+        focusScore = focusScore.toDouble().coerceIn(30.0, 99.0)
+    )
+}
+
+private fun clockRangeHours(start: String, end: String, fallback: Double): Double {
+    val formats = listOf(
+        DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH),
+        DateTimeFormatter.ofPattern("hh:mm a", Locale.ENGLISH),
+        DateTimeFormatter.ofPattern("H:mm", Locale.ENGLISH)
+    )
+    fun parse(value: String): LocalTime? = formats.firstNotNullOfOrNull { formatter ->
+        runCatching { LocalTime.parse(value.trim().uppercase(Locale.ENGLISH), formatter) }.getOrNull()
+    }
+    val startTime = parse(start) ?: return fallback
+    val endTime = parse(end) ?: return fallback
+    var minutes = ChronoUnit.MINUTES.between(startTime, endTime)
+    if (minutes <= 0) minutes += 24 * 60
+    return minutes / 60.0
 }
 
 @Composable

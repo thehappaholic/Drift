@@ -163,6 +163,7 @@ class MainActivity : ComponentActivity() {
                                 val elapsedSeconds = (40 * 60 - focusRemainingSeconds)
                                     .coerceIn(0, 40 * 60)
                                 focusSessionIntervalStore.stop()
+                                DriftSoundPlayer.playSessionEnd(this@MainActivity)
                                 lastFocusSeconds = elapsedSeconds
                                 focusSessionStarted = false
                                 focusSessionStartedAtMillis = null
@@ -481,6 +482,7 @@ class MainActivity : ComponentActivity() {
 
                         "dashboard" -> DashboardScreen(
                             userName = profileName,
+                            onboarding = onboardingDraft,
                             focusStreakStats = focusStreakStats,
                             appBudgets = mapOf(
                                 "Instagram" to instagramBudget,

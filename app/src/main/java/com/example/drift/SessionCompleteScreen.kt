@@ -1,7 +1,5 @@
 package com.example.drift
 
-import android.media.AudioManager
-import android.media.ToneGenerator
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -30,11 +28,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.delay
 
 @Composable
 fun SessionCompleteScreen(
@@ -43,16 +41,9 @@ fun SessionCompleteScreen(
     focusedSeconds: Int,
     breakSeconds: Int
 ) {
+    val context = LocalContext.current
     LaunchedEffect(Unit) {
-        val tone = runCatching {
-            ToneGenerator(AudioManager.STREAM_NOTIFICATION, 45)
-        }.getOrNull()
-        try {
-            tone?.startTone(ToneGenerator.TONE_PROP_ACK, 320)
-            delay(400)
-        } finally {
-            tone?.release()
-        }
+        DriftSoundPlayer.playFocusSuccess(context)
     }
 
     Scaffold(
