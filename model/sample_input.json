@@ -1,0 +1,18 @@
+{
+  "gender": "Female",
+  "age": 22,
+  "study_hours_per_day": 5.5,
+  "sleep_hours": 7.0,
+  "phone_usage_hours": 4.0,
+  "social_media_hours": 2.0,
+  "youtube_hours": 1.0,
+  "gaming_hours": 0.5,
+  "breaks_per_day": 5,
+  "coffee_intake_mg": 120,
+  "exercise_minutes": 30,
+  "assignments_completed": 8,
+  "attendance_percentage": 85.0,
+  "stress_level": 5,
+  "focus_score": 75
+}
+

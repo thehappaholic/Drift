@@ -1,0 +1,63 @@
+{
+  "created_at_utc": "2026-08-03T08:47:57.570375+00:00",
+  "dataset": "C:\\Users\\psedi\\AndroidStudioProjects\\Drift\\model\\data\\student_productivity_distraction_dataset_20000.csv",
+  "row_count": 20000,
+  "split_rows": {
+    "train": 14000,
+    "validation": 3000,
+    "test": 3000
+  },
+  "features": [
+    "gender",
+    "age",
+    "study_hours_per_day",
+    "sleep_hours",
+    "phone_usage_hours",
+    "social_media_hours",
+    "youtube_hours",
+    "gaming_hours",
+    "breaks_per_day",
+    "coffee_intake_mg",
+    "exercise_minutes",
+    "assignments_completed",
+    "attendance_percentage",
+    "stress_level",
+    "focus_score"
+  ],
+  "target": "productivity_score",
+  "validation_metrics": {
+    "dummy_mean": {
+      "mae": 13.1661,
+      "rmse": 16.1428,
+      "r2": -0.0002
+    },
+    "ridge": {
+      "mae": 0.0026,
+      "rmse": 0.0031,
+      "r2": 1.0
+    },
+    "gradient_boosting": {
+      "mae": 0.856,
+      "rmse": 1.084,
+      "r2": 0.9955
+    },
+    "random_forest": {
+      "mae": 1.9944,
+      "rmse": 2.5398,
+      "r2": 0.9752
+    }
+  },
+  "selected_model": "ridge",
+  "test_metrics": {
+    "mae": 0.0026,
+    "rmse": 0.0031,
+    "r2": 1.0
+  },
+  "synthetic_target_warning": true,
+  "limitations": [
+    "This is a prototype productivity model, not a real-time distraction model.",
+    "The dataset contains cross-sectional records rather than per-user time-series events.",
+    "Predictions should be presented as estimates, not objective judgments.",
+    "A linear model predicts the target almost perfectly, strongly indicating that productivity_score was generated from a fixed formula rather than measured in the real world."
+  ]
+}
